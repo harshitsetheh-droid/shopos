@@ -6976,8 +6976,9 @@ function checkAndFireUdhaarReminders(){
     udhaarRecords.forEach(rec=>{
       if(rec.totalPending<=0) return;
       _udhaarReminderIntervals.forEach((intervalMin)=>{
-        const setAt=_udhaarIntSetAt[intervalMin];
-        if(!setAt) return; // interval enabled but no start time — skip until set persists
+        let setAt=_udhaarIntSetAt[intervalMin];
+        // If active but no persisted start time yet, initialize once (keeps it from drifting on refresh)
+        if(!setAt){ setAt=Date.now(); _udhaarIntSetAt[intervalMin]=setAt; _saveReminderState(); }
         const ellapsedMin=Math.floor((now-setAt)/(1000*60));
         if(ellapsedMin>=intervalMin){
           const fk = String(rec.id)+'|'+intervalMin;
