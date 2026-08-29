@@ -2408,8 +2408,6 @@ function udhaarNotificationDue(rec){
 function getUdhaarReminderInfo(rec){
   const parts=[];
   const nm=(rec.name||'').toLowerCase();
-  // If user already saw/dismissed the reminder, consider it done — don't show again
-  if(_bellDismissed['udhaar:'+rec.id]) return '';
   // Fixed per-customer reminders
   _udhaarFixedReminders.filter(r => (r.custName||'').toLowerCase()===nm).forEach(r=>{
     const d=new Date(r.date);
@@ -6679,51 +6677,8 @@ function openUdhaarReminderSettings(){
   renderActiveReminders();
   renderFixedReminders();
   renderExistingReminders();
-  renderRemCustList();
   document.getElementById('customReminderVal').value='';
   document.getElementById('udhaarReminderModal').classList.add('open');
-}
-
-function renderRemCustList(){
-  const wrap=document.getElementById('remCustListWrap');
-  if(!wrap) return;
-  const seen={};
-  const list=[];
-  udhaarRecords.filter(r=>r.totalPending>0||(r.credit||0)>0).forEach(r=>{
-    if(seen[r.name]) return; seen[r.name]=true;
-    list.push({name:r.name, phone:r.phone||'', pending:r.totalPending});
-  });
-  sales.forEach(r=>{ const n=up(r.customerName)||'Walk-in'; if(n&&n!=='Walk-in'&&!seen[n]){ seen[n]=true; list.push({name:n, phone:'', pending:0}); } });
-  if(!list.length){ wrap.innerHTML='<div style="font-size:12px;color:var(--muted);">No customers yet.</div>'; return; }
-  wrap.innerHTML=list.map(c=>{
-    const fr=_udhaarFixedReminders.filter(r=>(r.custName||'').toLowerCase()===c.name.toLowerCase());
-    const status = fr.length
-      ? (fr.some(r=>r.fired) ? '✅ Reminder fired' : '📅 Fixed: '+fmtRemDate(fr[0].date)+(fr.length>1?' +'+(fr.length-1)+' more':''))
-      : '⏰ Interval: '+
-        (_udhaarReminderIntervals.length
-          ? ('every '+fmtInterval(Math.min(..._udhaarReminderIntervals))+' after bill')
-          : 'None set')+'';
-    const color = fr.length ? 'var(--accent2)' : 'var(--muted)';
-    return `<div onclick="pickRemCust('${String(c.name).replace(/'/g,"\\'")}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;" title="Click to select ${c.name} for a fixed reminder">
-      <span style="font-size:14px;">👤</span>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:700;color:var(--text);">${escapeHtml(c.name)}</div>
-        <div style="font-size:11px;color:${color};">${status}${c.pending?` · ₹${fmt(c.pending)} pending`:''}</div>
-      </div>
-      <span style="font-size:12px;color:var(--accent2);">Select ➜</span>
-    </div>`;
-  }).join('');
-}
-
-function fmtRemDate(dt){
-  const d=new Date(dt);
-  return d.toLocaleDateString('en-IN')+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-}
-
-function pickRemCust(name){
-  const inp=document.getElementById('fixRemCustText');
-  if(inp){ inp.value=name || ''; document.getElementById('fixRemCustList').style.display='none'; }
-  notify('Customer selected: '+name,'success');
 }
 
 function renderExistingReminders(){
