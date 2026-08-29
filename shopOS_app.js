@@ -6737,6 +6737,7 @@ function toggleReminderPreset(min){
   _saveReminderState();
   renderReminderOptions();
   renderActiveReminders();
+  renderUdhaar();
 }
 
 function addCustomReminder(){
@@ -6754,6 +6755,7 @@ function addCustomReminder(){
   document.getElementById('customReminderVal').value='';
   renderReminderOptions();
   renderActiveReminders();
+  renderUdhaar();
 }
 
 function removeReminderInterval(min){
@@ -6761,6 +6763,7 @@ function removeReminderInterval(min){
   _saveReminderState();
   renderReminderOptions();
   renderActiveReminders();
+  renderUdhaar();
 }
 
 function renderActiveReminders(){
@@ -6811,6 +6814,7 @@ function addFixedReminder(){
   notify(`✓ Fixed reminder added for ${name} on ${date.toLocaleString('en-IN')}`);
   renderFixedReminders();
   renderActiveReminders();
+  renderUdhaar();
 }
 
 function renderFixedReminders(){
@@ -6838,12 +6842,15 @@ function removeFixedReminder(idx){
   _saveReminderState();
   renderFixedReminders();
   renderActiveReminders();
+  renderUdhaar();
 }
 
 function saveReminderSettings(){
   _saveReminderState();
   closeModal('udhaarReminderModal');
   checkAndFireUdhaarReminders();
+  renderUdhaar();
+  updateReminderCount();
   notify(`Reminder settings saved! Checking ${_udhaarReminderIntervals.length} interval${_udhaarReminderIntervals.length!==1?'s':''} and ${_udhaarFixedReminders.length} fixed reminder${_udhaarFixedReminders.length!==1?'s':''}...`);
 }
 
@@ -7002,6 +7009,8 @@ function checkAndFireUdhaarReminders(){
     }
   });
   renderFixedReminders();
+  // Reminder fired now — update card + bell live (no refresh needed)
+  if(reminded>0){ renderUdhaar(); updateReminderCount(); }
 }
 
 function scheduleUdhaarReminderCheck(){
