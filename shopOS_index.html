@@ -820,7 +820,6 @@
           <input id="coAdvPackDate" type="text" data-calendar readonly placeholder="Select date..." style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;">
           <input id="coAdvPackTime" type="time" style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color-scheme:dark;">
         </div>
-        <div style="font-size:11px;color:var(--accent2);margin-top:4px;">⏰ Reminder: Set pickup/packing time in the future</div>
       </div>
       <div class="form-group" style="margin-bottom:10px;">
         <label>Advance Paid Now (₹)</label>
@@ -1062,8 +1061,7 @@
       <div class="form-group"><label>Packing Date</label>
         <input id="advPackDate" type="text" data-calendar readonly placeholder="Select date..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;"></div>
       <div class="form-group"><label>Packing Time</label>
-        <input id="advPackTime" type="time" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color-scheme:dark;">
-        <div style="font-size:11px;color:var(--accent2);margin-top:4px;">⏰ Reminder: Set pickup/packing time in the future</div></div>
+        <input id="advPackTime" type="time" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color-scheme:dark;"></div>
       <div class="form-group"><label>Advance Paid (₹)</label><input id="advPaid" type="number" min="0" step="0.01" placeholder="0.00"></div>
     </div>
     <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><input id="advNotes" placeholder="Any special instructions..."></div>
@@ -1074,7 +1072,6 @@
         <button class="btn btn-ghost btn-sm" onclick="openAdvLocationMap()" style="flex-shrink:0;">🗺️ Map</button>
         <button class="btn btn-danger btn-sm" onclick="clearAdvLocation()" style="flex-shrink:0;" title="Clear location">✕</button>
       </div>
-      <div style="font-size:11px;color:var(--accent2);margin-top:4px;">Pick delivery address on map. You can also link a customer's saved shop location.</div>
     </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
@@ -1270,7 +1267,7 @@
       <div style="flex:1;position:relative;">
         <input id="mapSearchInput" placeholder="Search place / area / address..." autocomplete="off"
           style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();searchMapPlace();}">
+          oninput="debouncedMapSearch(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();searchMapPlace();}">
         <div id="mapSearchList" style="position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;z-index:1200;max-height:200px;overflow-y:auto;display:none;"></div>
       </div>
       <button class="btn btn-ghost btn-sm" onclick="useMyLocation()" style="flex-shrink:0;">📍 My Location</button>
@@ -1293,7 +1290,7 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=27"></script>
+<script src="shopOS_app.js?v=28"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

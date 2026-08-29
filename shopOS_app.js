@@ -7766,7 +7766,10 @@ function calInit() {
   document.querySelectorAll('input[data-calendar]').forEach(el => calBind(el));
 }
 function calBind(el) {
+  if(!el) return;
   if(el.hasAttribute('readonly')){el.style.cursor='pointer';}
+  if(el._calBound){ return; }
+  el._calBound = true;
   el.addEventListener('click', () => calOpen(el));
   el.addEventListener('keydown', e => { if(e.key==='Enter') calOpen(el); });
   if (el.value) { el._val = el.value; el.value = calFmt(el.value); }
@@ -7932,18 +7935,22 @@ function openMapPicker(opts){
   if(addrEl) addrEl.innerHTML = opts.address ? `<span style="color:var(--accent);font-weight:600;">??</span> ${escapeHtml(opts.address)}` : '<span style="color:var(--muted);">Select a location...</span>';
   document.getElementById('mapPickerModal').classList.add('open');
   if(!_mapPickerMap){
-    _mapPickerMap = L.map('mapPickerDiv').setView([lat, lng], 13);
+    _mapPickerMap = L.map('mapPickerDiv', { scrollWheelZoom: true }).setView([lat, lng], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      subdomains: ['a','b','c'],
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(_mapPickerMap);
     _mapPickerMap.on('click', e => {
       setMapPick(e.latlng.lat, e.latlng.lng);
     });
-    setTimeout(() => _mapPickerMap.invalidateSize(), 150);
+    _mapPickerMap.on('popupopen', e => e.target.invalidateSize());
+    setTimeout(() => _mapPickerMap.invalidateSize(), 250);
+    setTimeout(() => _mapPickerMap.invalidateSize(), 600);
   } else {
     _mapPickerMap.setView([lat, lng], 13);
-    setTimeout(() => _mapPickerMap.invalidateSize(), 150);
+    setTimeout(() => _mapPickerMap.invalidateSize(), 250);
+    setTimeout(() => _mapPickerMap.invalidateSize(), 600);
   }
   setMapPick(lat, lng, opts.address || '');
 }
@@ -7968,11 +7975,17 @@ function setMapPick(lat, lng, addrLabel){
 function loadMapAddress(lat, lng){
   const addrEl = document.getElementById('mapPickedAddress');
   if(addrEl) addrEl.innerHTML = '<span class="muted-span" style="color:var(--muted);">Fetching address...</span>';
-  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&accept-language=en`)
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=16&namedetails=1&accept-language=en`)
     .then(r => r.json())
     .then(d => {
-      const disp = (d && d.display_name) ? d.display_name : `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}`;
-      if(addrEl) addrEl.innerHTML = `<span style="color:var(--accent);font-weight:600;">??</span> ${escapeHtml(disp)}`;
+      let disp = '';
+      if(d && d.display_name){
+        disp = d.display_name;
+        if(d.address && d.address.amenity) disp = d.address.amenity + ', ' + disp;
+      } else {
+        disp = `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}`;
+      }
+      if(addrEl) addrEl.innerHTML = `<span style="color:var(--accent);font-weight:600;">📍</span> ${escapeHtml(disp)}`;
     })
     .catch(() => {
       if(addrEl) addrEl.innerHTML = `<span style="color:var(--muted);">${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}</span>`;
@@ -7983,7 +7996,7 @@ function searchMapPlace(){
   const q = document.getElementById('mapSearchInput').value.trim();
   const list = document.getElementById('mapSearchList');
   if(!q){ list.style.display='none'; return; }
-  fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&limit=6&accept-language=en`)
+  fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&limit=15&viewbox=68.0,37.0,97.0,6.0&bounded=1&accept-language=en`)
     .then(r => r.json())
     .then(d => {
       if(!d || !d.length){ list.innerHTML='<div style="padding:8px 12px;color:var(--muted);font-size:12px;">No places found</div>'; list.style.display='block'; return; }
@@ -7992,6 +8005,14 @@ function searchMapPlace(){
       list.style.display='block';
     })
     .catch(()=>{ list.style.display='none'; });
+}
+
+let _mapSearchTimer = null;
+function debouncedMapSearch(val){
+  clearTimeout(_mapSearchTimer);
+  const list = document.getElementById('mapSearchList');
+  if(!val.trim()){ list.style.display='none'; return; }
+  _mapSearchTimer = setTimeout(() => searchMapPlace(), 400);
 }
 
 function pickMapSearch(idx){
