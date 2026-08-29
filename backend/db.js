@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Pool, types } = require('pg');
 
 // Return TIMESTAMP (oid 1114) and TIMESTAMPTZ (oid 1184) as strings
@@ -10,7 +11,7 @@ const pool = new Pool({
   port: parseInt(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME || 'shopos',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'Harshit@12b',
+  password: process.env.DB_PASSWORD,
 });
 
 pool.on('error', (err) => {
