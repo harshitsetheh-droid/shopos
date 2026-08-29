@@ -2413,13 +2413,15 @@ function getUdhaarReminderInfo(rec){
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
     const minInt=Math.min(..._udhaarReminderIntervals);
     const setAt=_udhaarIntSetAt[minInt];
+    const fk=String(rec.id)+'|'+minInt;
+    const done = _udhaarIntFired[fk] ? ' · done' : '';
+    let line='<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt);
     if(setAt){
       const dueDate=new Date(setAt+minInt*60000);
-      const when=dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-      const fk=String(rec.id)+'|'+minInt;
-      const done = _udhaarIntFired[fk] ? ' · done' : '';
-      parts.push('<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt)+' ('+when+')'+done+'</span>');
+      line+=' ('+dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})+')';
     }
+    line+='</span>'+done;
+    parts.push(line);
   }
   return parts.join('<br>');
 }
