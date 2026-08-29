@@ -2383,21 +2383,15 @@ function udhaarNotificationDue(rec){
       !r.fired && (r.custName||'').toLowerCase()===rec.name.toLowerCase() && new Date(r.date)<=new Date());
     if(fr) return { label:'⏰ Reminder· '+fr.note||'Due reminder', fk:'fixed|'+fr.id };
   }
-  // 2) Interval reminders: show only if the one-shot popup has fired (reminder is due) — 
-  //    disappearing when the user dismisses it (persistent) or pays the bill.
+  // 2) Interval reminders: fire X days AFTER the reminder was set (current time), one-shot.
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
-    const oldestBill=rec.bills.find(b=>b.pending>0);
-    if(oldestBill){
-      const ageMin=Math.floor((Date.now()-new Date(oldestBill.date).getTime())/(1000*60));
-      const matched = _udhaarReminderIntervals.filter(m=>ageMin>=m);
-      if(matched.length){
-        for(const m of matched){
-          const fk=String(rec.id)+'|'+oldestBill.date+'|'+m;
-          if(_udhaarIntFired[fk]){
-            const display = m<1440 ? fmtInterval(m) : Math.floor(m/1440)+'d';
-            return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · reminder after '+display, fk:fk };
-          }
-        }
+    for(const m of _udhaarReminderIntervals){
+      const setAt=_udhaarIntSetAt[m]||Date.now();
+      const ellapsedMin=Math.floor((Date.now()-setAt)/(1000*60));
+      const fk=String(rec.id)+'|'+m;
+      if(ellapsedMin>=m && _udhaarIntFired[fk]){
+        const display = m<1440 ? fmtInterval(m) : Math.floor(m/1440)+'d';
+        return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · reminder after '+display, fk:fk };
       }
     }
   }
@@ -2414,17 +2408,15 @@ function getUdhaarReminderInfo(rec){
     const when=d.toLocaleDateString('en-IN')+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
     parts.push('<span style="color:'+(r.fired?'var(--green)':'var(--accent2)')+';">'+(r.fired?'✅':'📅')+' Reminder: '+when+(r.note?' · '+escapeHtml(r.note):'')+(r.fired?' · done':'')+'</span>');
   });
-  // Interval reminders: remind once after X days (from oldest pending bill)
+  // Interval reminders: remind once X days after the reminder was set (current time)
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
-    const oldestBill=rec.bills?.find(b=>b.pending>0);
-    if(oldestBill){
-      const minInt=Math.min(..._udhaarReminderIntervals);
-      const dueDate=new Date(new Date(oldestBill.date).getTime()+minInt*60000);
-      const when=dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-      const fk=String(rec.id)+'|'+oldestBill.date+'|'+minInt;
-      const done = _udhaarIntFired[fk] ? ' · done' : '';
-      parts.push('<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt)+' ('+when+')'+done+'</span>');
-    }
+    const minInt=Math.min(..._udhaarReminderIntervals);
+    const setAt=_udhaarIntSetAt[minInt]||Date.now();
+    const dueDate=new Date(setAt+minInt*60000);
+    const when=dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+    const fk=String(rec.id)+'|'+minInt;
+    const done = _udhaarIntFired[fk] ? ' · done' : '';
+    parts.push('<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt)+' ('+when+')'+done+'</span>');
   }
   return parts.join('<br>');
 }
@@ -6654,15 +6646,21 @@ function _loadReminderState(){
     const v=JSON.parse(localStorage.getItem('shopOS_udhaarIntFired'));
     if(v&&typeof v==='object') _udhaarIntFired=v;
   }catch(e){}
+  try{
+    const v=JSON.parse(localStorage.getItem('shopOS_udhaarIntSetAt'));
+    if(v&&typeof v==='object') _udhaarIntSetAt=v;
+  }catch(e){}
 }
 function _saveReminderState(){
   localStorage.setItem('shopOS_reminderIntervals',JSON.stringify(_udhaarReminderIntervals));
   localStorage.setItem('shopOS_fixedReminders',JSON.stringify(_udhaarFixedReminders));
   localStorage.setItem('shopOS_udhaarIntFired',JSON.stringify(_udhaarIntFired));
+  localStorage.setItem('shopOS_udhaarIntSetAt',JSON.stringify(_udhaarIntSetAt));
 }
 let _udhaarReminderIntervals=[]; // default: none set; user adds manually
 let _udhaarFixedReminders=[]; // [{id, custName, date, note, fired}]
-let _udhaarIntFired={}; // key: recId|billDate|intervalMin -> true (reminded once)
+let _udhaarIntFired={}; // key: recId|intervalMin -> true (reminded once)
+let _udhaarIntSetAt={}; // min -> timestamp when this interval was turned ON (countdown starts now)
 _loadReminderState();
 
 function fmtInterval(min){
@@ -6732,7 +6730,7 @@ function renderReminderOptions(){
 function toggleReminderPreset(min){
   const idx=_udhaarReminderIntervals.indexOf(min);
   if(idx>=0) _udhaarReminderIntervals.splice(idx,1);
-  else _udhaarReminderIntervals.push(min);
+  else { _udhaarReminderIntervals.push(min); _udhaarIntSetAt[min]=Date.now(); }
   _udhaarReminderIntervals.sort((a,b)=>a-b);
   _saveReminderState();
   renderReminderOptions();
@@ -6750,6 +6748,7 @@ function addCustomReminder(){
   if(!_udhaarReminderIntervals.includes(min)){
     _udhaarReminderIntervals.push(min);
     _udhaarReminderIntervals.sort((a,b)=>a-b);
+    _udhaarIntSetAt[min]=Date.now();
   }
   _saveReminderState();
   document.getElementById('customReminderVal').value='';
@@ -6964,17 +6963,17 @@ function snoozeReminder(){
 function checkAndFireUdhaarReminders(){
   const now=Date.now();
   let reminded=0;
-  // Check interval reminders — ONE-SHOT: fires ONCE when bill is X days old, then it's done
+  // Check interval reminders — ONE-SHOT: fires ONCE X days after the reminder was SET (current time),
+  // then it's done
   if(_udhaarReminderIntervals.length){
     udhaarRecords.forEach(rec=>{
       if(rec.totalPending<=0) return;
-      const oldestBill=rec.bills.find(b=>b.pending>0);
-      if(!oldestBill) return;
-      const billAgeMin=Math.floor((now-new Date(oldestBill.date).getTime())/(1000*60));
       _udhaarReminderIntervals.forEach((intervalMin)=>{
-        if(billAgeMin>=intervalMin){
-          const fk = String(rec.id)+'|'+oldestBill.date+'|'+intervalMin;
-          if(_udhaarIntFired[fk]) return; // already reminded once for this bill+interval
+        const setAt=_udhaarIntSetAt[intervalMin]||Date.now();
+        const ellapsedMin=Math.floor((now-setAt)/(1000*60));
+        if(ellapsedMin>=intervalMin){
+          const fk = String(rec.id)+'|'+intervalMin;
+          if(_udhaarIntFired[fk]) return; // already reminded once for this interval
           _udhaarIntFired[fk]=true; _saveReminderState();
           if(Object.keys(_udhaarIntFired).length>5000){ _udhaarIntFired={}; _saveReminderState(); }
           const display=intervalMin<1440?fmtInterval(intervalMin):Math.floor(intervalMin/1440)+' day'+(Math.floor(intervalMin/1440)===1?'':'s');
