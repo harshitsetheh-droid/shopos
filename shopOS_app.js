@@ -6790,7 +6790,7 @@ function getFixRemCustItems(q){
   sales.forEach(r=>{const n=r.customerName||'Walk-in';if(n) s.add(n);});
   return [...s].filter(n=>!q||matchWords(n,q.toLowerCase())).slice(0,10).map(n=>{
     const hasRem = _udhaarFixedReminders.some(r => (r.custName||'').toLowerCase() === n.toLowerCase());
-    return {label: n + (hasRem ? ' ⏰ (has reminder)' : ''), value:n};
+    return { icon:'👤', main:n, sub: hasRem ? '⏰ has reminder' : '', display:n, value:n };
   });
 }
 
