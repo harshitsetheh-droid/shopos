@@ -2386,7 +2386,8 @@ function udhaarNotificationDue(rec){
   // 2) Interval reminders: fire X days AFTER the reminder was set (current time), one-shot.
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
     for(const m of _udhaarReminderIntervals){
-      const setAt=_udhaarIntSetAt[m]||Date.now();
+      const setAt=_udhaarIntSetAt[m];
+      if(!setAt) continue;
       const ellapsedMin=Math.floor((Date.now()-setAt)/(1000*60));
       const fk=String(rec.id)+'|'+m;
       if(ellapsedMin>=m && _udhaarIntFired[fk]){
@@ -2408,15 +2409,17 @@ function getUdhaarReminderInfo(rec){
     const when=d.toLocaleDateString('en-IN')+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
     parts.push('<span style="color:'+(r.fired?'var(--green)':'var(--accent2)')+';">'+(r.fired?'✅':'📅')+' Reminder: '+when+(r.note?' · '+escapeHtml(r.note):'')+(r.fired?' · done':'')+'</span>');
   });
-  // Interval reminders: remind once X days after the reminder was set (current time)
+  // Interval reminders: remind once X days after the reminder was set (persistent start time)
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
     const minInt=Math.min(..._udhaarReminderIntervals);
-    const setAt=_udhaarIntSetAt[minInt]||Date.now();
-    const dueDate=new Date(setAt+minInt*60000);
-    const when=dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
-    const fk=String(rec.id)+'|'+minInt;
-    const done = _udhaarIntFired[fk] ? ' · done' : '';
-    parts.push('<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt)+' ('+when+')'+done+'</span>');
+    const setAt=_udhaarIntSetAt[minInt];
+    if(setAt){
+      const dueDate=new Date(setAt+minInt*60000);
+      const when=dueDate.toLocaleDateString('en-IN')+' '+dueDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+      const fk=String(rec.id)+'|'+minInt;
+      const done = _udhaarIntFired[fk] ? ' · done' : '';
+      parts.push('<span style="color:var(--accent2);">⏰ Reminder after '+fmtInterval(minInt)+' ('+when+')'+done+'</span>');
+    }
   }
   return parts.join('<br>');
 }
@@ -6732,6 +6735,7 @@ function toggleReminderPreset(min){
   if(idx>=0) _udhaarReminderIntervals.splice(idx,1);
   else { _udhaarReminderIntervals.push(min); _udhaarIntSetAt[min]=Date.now(); }
   _udhaarReminderIntervals.sort((a,b)=>a-b);
+  if(!_udhaarReminderIntervals.includes(min)){ delete _udhaarIntSetAt[min]; }
   _saveReminderState();
   renderReminderOptions();
   renderActiveReminders();
@@ -6759,6 +6763,7 @@ function addCustomReminder(){
 
 function removeReminderInterval(min){
   _udhaarReminderIntervals=_udhaarReminderIntervals.filter(m=>m!==min);
+  delete _udhaarIntSetAt[min];
   _saveReminderState();
   renderReminderOptions();
   renderActiveReminders();
@@ -6969,7 +6974,8 @@ function checkAndFireUdhaarReminders(){
     udhaarRecords.forEach(rec=>{
       if(rec.totalPending<=0) return;
       _udhaarReminderIntervals.forEach((intervalMin)=>{
-        const setAt=_udhaarIntSetAt[intervalMin]||Date.now();
+        const setAt=_udhaarIntSetAt[intervalMin];
+        if(!setAt) return; // interval enabled but no start time — skip until set persists
         const ellapsedMin=Math.floor((now-setAt)/(1000*60));
         if(ellapsedMin>=intervalMin){
           const fk = String(rec.id)+'|'+intervalMin;
