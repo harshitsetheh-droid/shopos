@@ -2394,6 +2394,31 @@ function udhaarNotificationDue(rec){
   return null;
 }
 
+// Returns HTML line(s) showing a customer's set reminder date/time, else ''
+function getUdhaarReminderInfo(rec){
+  const parts=[];
+  const nm=(rec.name||'').toLowerCase();
+  // Fixed per-customer reminders
+  _udhaarFixedReminders.filter(r => (r.custName||'').toLowerCase()===nm).forEach(r=>{
+    const d=new Date(r.date);
+    const when=d.toLocaleDateString('en-IN')+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
+    parts.push('<span style="color:'+(r.fired?'var(--green)':'var(--accent2)')+';">'+(r.fired?'✅':'📅')+' Reminder: '+when+(r.note?' · '+escapeHtml(r.note):'')+(r.fired?' ✓ fired':'')+'</span>');
+  });
+  // Interval reminders: next trigger = oldest pending bill date + shortest interval
+  if(_udhaarReminderIntervals.length && rec.totalPending>0){
+    const oldestBill=rec.bills?.find(b=>b.pending>0);
+    if(oldestBill){
+      const minInt=Math.min(..._udhaarReminderIntervals);
+      const next=new Date(new Date(oldestBill.date).getTime()+minInt*60000);
+      const when=(next>new Date())
+        ? next.toLocaleDateString('en-IN')+' '+next.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})
+        : 'due now';
+      parts.push('<span style="color:var(--accent2);">⏰ Reminder: every '+fmtInterval(minInt)+' · next '+when+'</span>');
+    }
+  }
+  return parts.join('<br>');
+}
+
 function updateReminderCount(){
   const wrap=document.getElementById('bellWrap');
   if(!wrap) return;
@@ -3634,6 +3659,7 @@ function renderUdhaar(){
       const oldestBill=rec.bills?.find(b=>b.pending>0);
       const pendingSince=oldestBill?getTimeSince(oldestBill.date):'';
       const hasCredit = (rec.credit||0) > 0;
+      const remInfo = getUdhaarReminderInfo(rec);
       // Last transaction date
       const allDates = [];
       rec.bills.forEach(b => { allDates.push(b.date); (b.payments||[]).forEach(p => allDates.push(p.date)); });
@@ -3651,6 +3677,7 @@ function renderUdhaar(){
             </div>`:''}
             ${rec.reference?`<div style="font-size:13px;color:var(--accent2);margin-top:8px;">🏷️ ${rec.reference}</div>`:''}
             ${hasCredit?`<div style="font-size:12px;color:var(--accent2);margin-top:8px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
+            ${remInfo?`<div style="font-size:12px;color:var(--accent2);margin-top:8px;font-weight:600;line-height:1.5;">${remInfo}</div>`:''}
           </div>
           <div style="margin-left:auto;text-align:right;">
             <div class="ud-pending" style="color:${hasCredit?'var(--accent2)':rec.totalPending<=0?'var(--green)':'var(--red)'};">${hasCredit?`₹${fmt(rec.credit)}`:`₹${fmt(rec.totalPending)}`}</div>
