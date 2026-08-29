@@ -2354,7 +2354,7 @@ function getBellItems(){
     if(isDismissed('udhaar',r.id)) return;
     const due = udhaarNotificationDue(r);
     if(!due) return;
-    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:due.label, page:'udhaar', id:r.id, priority: 2, fk: due.fk });
+    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:due.label, page:'udhaar', id:r.id, priority: 2, fk: due.fk, cyc: due.cyc||0 });
   });
   // Advance orders due (scheduled/ready, not billed)
   advanceOrders.filter(o=>o.status!=='billed').forEach(o=>{
@@ -2379,8 +2379,8 @@ function udhaarNotificationDue(rec){
       !r.fired && (r.custName||'').toLowerCase()===rec.name.toLowerCase() && new Date(r.date)<=new Date());
     if(fr) return { label:'⏰ Reminder· '+fr.note||'Due reminder', fk:'fixed|'+fr.id };
   }
-  // 2) Interval reminders: only show AFTER the popup already fired once (persistent),
-  //    and only until it has been shown once in the bell (one-shot, no daily nagging)
+  // 2) Interval reminders: show when a recurring cycle has fired (boundary crossed),
+  //    hidden only if the user dismisses it this session. Comes back on next cycle.
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
     const oldestBill=rec.bills.find(b=>b.pending>0);
     if(oldestBill){
@@ -2389,9 +2389,11 @@ function udhaarNotificationDue(rec){
       if(matched.length){
         for(const m of matched){
           const fk=String(rec.id)+'|'+oldestBill.date+'|'+m;
-          if(_udhaarIntFired[fk] && !_udhaarIntShown[fk]){
+          const cyc=_udhaarIntFired[fk];
+          // Show in bell only for the newest fired cycle (per boundary)
+          if(cyc && (_udhaarIntShown[fk]||0) < cyc){
             const display = m<1440 ? fmtInterval(m) : Math.floor(m/1440)+'d';
-            return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · '+display+' reminder due', fk:fk };
+            return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · every '+display+(cyc>1?' (#'+cyc+')':''), fk:fk, cyc:cyc };
           }
         }
       }
@@ -2451,9 +2453,9 @@ function renderBellPanel(){
     panel.innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">🔕 No reminders</div>';
     return;
   }
-  // Mark interval reminders as shown (one-shot) so they don't nag every day
+  // Mark newest interval boundary as shown (per cycle) so it doesn't reappear daily
   let needsSave=false;
-  (items||[]).forEach(it=>{ if(it.fk && !/^fixed\|/.test(it.fk) && !_udhaarIntShown[it.fk]){ _udhaarIntShown[it.fk]=true; needsSave=true; } });
+  (items||[]).forEach(it=>{ if(it.fk && it.cyc && !/^fixed\|/.test(it.fk) && (_udhaarIntShown[it.fk]||0) < it.cyc){ _udhaarIntShown[it.fk]=it.cyc; needsSave=true; } });
   if(needsSave) _saveReminderState();
   panel.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;">
@@ -6668,8 +6670,8 @@ function _saveReminderState(){
 }
 let _udhaarReminderIntervals=[]; // default: none set; user adds manually
 let _udhaarFixedReminders=[]; // [{id, custName, date, note, fired}]
-let _udhaarIntFired={}; // key: recId|billDate|intervalMin -> true (popup fired once)
-let _udhaarIntShown={}; // key: same -> true (already shown in bell once)
+let _udhaarIntFired={}; // key: recId|billDate|intervalMin -> boundary number fired (recurring)
+let _udhaarIntShown={}; // key -> boundary number already shown in bell (per cycle)
 _loadReminderState();
 
 function fmtInterval(min){
@@ -6953,7 +6955,7 @@ function snoozeReminder(){
 function checkAndFireUdhaarReminders(){
   const now=Date.now();
   let reminded=0;
-  // Check interval reminders — fires only ONCE per bill per interval (persistent)
+  // Check interval reminders — RECURRING: fires at every interval boundary (e.g. every 3 days)
   if(_udhaarReminderIntervals.length){
     udhaarRecords.forEach(rec=>{
       if(rec.totalPending<=0) return;
@@ -6962,13 +6964,18 @@ function checkAndFireUdhaarReminders(){
       const billAgeMin=Math.floor((now-new Date(oldestBill.date).getTime())/(1000*60));
       _udhaarReminderIntervals.forEach((intervalMin)=>{
         if(billAgeMin>=intervalMin){
+          const boundary = Math.floor(billAgeMin / intervalMin); // 1st, 2nd, 3rd... occurrence
           const fk = String(rec.id)+'|'+oldestBill.date+'|'+intervalMin;
-          if(_udhaarIntFired[fk]) return; // already fired once
-          _udhaarIntFired[fk]=true; _saveReminderState();
+          const lastFired = _udhaarIntFired[fk]||0;
+          if(boundary<=lastFired) return; // already fired for this cycle
+          _udhaarIntFired[fk]=boundary; _saveReminderState();
+          // auto-clear expired keys so memory stays small
+          if(Object.keys(_udhaarIntFired).length>5000){ _udhaarIntFired={}; _saveReminderState(); }
           const display=intervalMin<1440?fmtInterval(intervalMin):Math.floor(intervalMin/1440)+' day'+(Math.floor(intervalMin/1440)===1?'':'s');
+          const times=billAgeMin<intervalMin*2?1:Math.floor(billAgeMin/intervalMin);
           showReminderPopup(
             '⏰ Udhaar Reminder',
-            `<strong>${rec.name}</strong> has <strong>₹${fmt(rec.totalPending)}</strong> pending for ${display}!`,
+            `<strong>${rec.name}</strong> has <strong>₹${fmt(rec.totalPending)}</strong> pending for ${display}!${times>1?' (Reminder #'+times+')':''}`,
             '⏰', 5,
             rec.name, rec.phone
           );
