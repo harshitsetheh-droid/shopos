@@ -6,7 +6,7 @@
   <title>ShopOS — Retail Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="leaflet.css?v=1">
-  <link rel="stylesheet" href="shopOS_style.css?v=16">
+  <link rel="stylesheet" href="shopOS_style.css?v=17">
 </head>
 <body>
 
@@ -112,6 +112,15 @@
     <span style="font-size:11px;color:var(--muted);" id="clockDisplay"></span>
     <div class="theme-toggle">
       <div id="authUserLabel" style="font-size:11px;color:var(--muted);margin-right:8px;"></div>
+      <div class="nav-loc-wrap" id="navLocWrap" style="display:none;" title="Change your shop location on map">
+        <span class="nav-loc-icon">📍</span>
+        <span id="navLocLabel" style="cursor:pointer;" onclick="changeNavLocation()"></span>
+        <button class="btn btn-ghost btn-sm" onclick="changeNavLocation()" style="padding:1px 6px;font-size:11px;margin-left:4px;">Change</button>
+      </div>
+      <div class="bell-wrap" id="bellWrap" style="position:relative;display:none;align-items:center;margin-right:8px;" title="Reminders">
+        <button class="btn btn-ghost btn-sm" onclick="toggleBellPanel()" style="padding:5px 9px;font-size:14px;">🔔<span id="bellCount" style="position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border-radius:50%;font-size:9px;min-width:15px;height:15px;display:none;align-items:center;justify-content:center;padding:0 3px;font-weight:700;"></span></button>
+        <div id="bellPanel" style="position:absolute;top:100%;right:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;width:320px;max-height:400px;overflow-y:auto;box-shadow:0 8px 30px var(--shadow);z-index:2000;display:none;margin-top:6px;"></div>
+      </div>
       <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="font-size:11px;padding:5px 12px;">Sign Out</button>
       <div class="toggle-wrap" onclick="toggleTheme()">
         <span class="toggle-label" id="themeLabel">🌙 Dark</span>
@@ -184,7 +193,11 @@
           <div class="card-title">Current Cart</div>
           <div style="padding:0 0 6px;">
             <label style="font-size:10px;color:var(--muted);margin-bottom:2px;display:block;">📍 Location (for GST)</label>
-            <input id="cartCustLocation" class="search-bar" style="width:100%;font-size:11px;padding:3px 8px;box-sizing:border-box;" placeholder="e.g. Jaipur, Rajasthan" oninput="onCustLocationChange()">
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input id="cartCustLocation" class="search-bar" style="flex:1;min-width:0;font-size:11px;padding:3px 8px;box-sizing:border-box;" placeholder="e.g. Jaipur, Rajasthan" oninput="onCustLocationChange()">
+              <button class="btn btn-ghost btn-sm" onclick="openCartLocationMap()" style="padding:1px 8px;font-size:11px;flex-shrink:0;" title="Pick location on map">🗺️</button>
+              <button class="btn btn-ghost btn-sm" onclick="setCartLocationToCurrent()" style="padding:1px 8px;font-size:11px;flex-shrink:0;" title="Use my current location">📍</button>
+            </div>
           </div>
           <div class="cart-items" id="cartItems"><div class="empty-state" style="padding:20px 0;"><div class="big">🛒</div><p>Cart is empty</p></div></div>
           <div class="cart-summary">
@@ -1293,7 +1306,7 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=29"></script>
+<script src="shopOS_app.js?v=30"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

@@ -475,11 +475,11 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
 
 /* ── CATEGORIES ── */
 .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
-.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;transition:all .2s;overflow:hidden;min-width:0;}
+.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;transition:all .2s;overflow:hidden;min-width:0;display:flex;flex-direction:column;}
 .cat-card:hover{border-color:var(--accent2);}
 .cat-name{font-family:var(--font-head);font-size:16px;font-weight:700;margin-bottom:4px;word-wrap:break-word;overflow-wrap:anywhere;word-break:break-word;}
 .cat-count{font-size:14px;font-weight:500;color:var(--muted);}
-.cat-actions{display:flex;gap:6px;margin-top:12px;}
+.cat-actions{display:flex;gap:6px;margin-top:auto;padding-top:12px;}
 .cat-search{position:relative;margin-bottom:14px;}
 .cat-search input{width:100%;padding:9px 12px 9px 34px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;}
 .cat-search .cat-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);opacity:.6;font-size:14px;pointer-events:none;}

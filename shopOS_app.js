@@ -266,6 +266,7 @@ async function doLogin(){
 
 /* ── Unlock app ── */
 let _userLocation = '';
+let bellPanelOpen = false;
 
 function unlockApp(displayName, location){
   _userLocation = location || '';
@@ -275,9 +276,21 @@ function unlockApp(displayName, location){
   setTimeout(()=>{ authScreen.style.display='none'; },400);
   mainApp.classList.remove('app-hidden');
   const lbl = document.getElementById('authUserLabel');
-  if(lbl) lbl.textContent='👤 '+displayName+(location?' · 📍'+location:'');
+  if(lbl) lbl.textContent='👤 '+displayName;
   const ci=document.getElementById('cartCustLocation');
   if(ci) ci.value=_userLocation;
+  // Show shop location in nav if present
+  const navWrap=document.getElementById('navLocWrap');
+  const navLabel=document.getElementById('navLocLabel');
+  if(_userLocation && navWrap && navLabel){ navLabel.textContent=_userLocation; navWrap.style.display='inline-flex'; }
+  // Show bell
+  const bellWrap=document.getElementById('bellWrap');
+  if(bellWrap) bellWrap.style.display='inline-flex';
+  updateReminderCount();
+  // Auto-fill cart location with device's current location if empty
+  if(ci && !ci.value.trim())  autoFillCartLocation();
+  // Refresh reminders after data loads
+  setTimeout(()=>updateReminderCount(), 2000);
 }
 
 function doLogout(){
@@ -2253,6 +2266,161 @@ function isIntrastate(){
 }
 function onCustLocationChange(){ updateTotals(); renderCart(); }
 
+function geolocateCurrent(cb){
+  if(!navigator.geolocation){ notify('Geolocation not supported','error'); return; }
+  notify('Locating...','success');
+  navigator.geolocation.getCurrentPosition(
+    (pos)=>{
+      const lat=pos.coords.latitude, lng=pos.coords.longitude;
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=12&accept-language=en`)
+        .then(r=>r.json())
+        .then(d=>{
+          const addr = d && d.display_name ? d.display_name : (lat.toFixed(5)+', '+lng.toFixed(5));
+          cb({lat,lng,address:addr});
+        })
+        .catch(()=>cb({lat,lng,address:lat.toFixed(5)+', '+lng.toFixed(5)}));
+    },
+    ()=>{ notify('Could not get location. Please allow location access.','error'); },
+    { enableHighAccuracy:true, timeout:10000, maximumAge:60000 }
+  );
+}
+
+function openCartLocationMap(){
+  openMapPicker({
+    lat: null, lng: null,
+    onConfirm:(loc)=>{
+      const input=document.getElementById('cartCustLocation');
+      if(input){ input.value = loc.address || (loc.lat.toFixed(5)+', '+loc.lng.toFixed(5)); onCustLocationChange(); }
+    }
+  });
+}
+
+function setCartLocationToCurrent(){
+  geolocateCurrent((loc)=>{
+    const input=document.getElementById('cartCustLocation');
+    if(input){ input.value=loc.address; onCustLocationChange(); }
+    notify('📍 Current location set','success');
+  });
+}
+
+function autoFillCartLocation(){
+  const input=document.getElementById('cartCustLocation');
+  if(!input || !input.value.trim()){
+    geolocateCurrent((loc)=>{
+      const inp=document.getElementById('cartCustLocation');
+      if(inp && !inp.value.trim()){ inp.value=loc.address; onCustLocationChange(); }
+    });
+  }
+}
+
+function changeNavLocation(){
+  openMapPicker({
+    lat:null, lng:null,
+    onConfirm:(loc)=>{
+      _userLocation = loc.address || (loc.lat.toFixed(5)+', '+loc.lng.toFixed(5));
+      const lbl=document.getElementById('navLocLabel');
+      if(lbl) lbl.textContent=_userLocation;
+      const navWrap=document.getElementById('navLocWrap');
+      if(navWrap) navWrap.style.display='inline-flex';
+      const inp=document.getElementById('cartCustLocation');
+      if(inp && !inp.value.trim()){ inp.value=_userLocation; onCustLocationChange(); }
+      notify('📍 Shop location updated: '+_userLocation,'success');
+    }
+  });
+}
+
+// ── NOTIFICATION BELL ─────────────────────────────────────────────────────────
+function getBellItems(){
+  const items=[];
+  const now=new Date().getTime();
+  // Udhaar pending > 0
+  udhaarRecords.filter(r=>r.totalPending>0).forEach(r=>{
+    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:'Pending ₹'+fmt(r.totalPending), page:'udhaar', id:r.id, priority: 2 });
+  });
+  // Advance orders due (scheduled/ready, not billed)
+  advanceOrders.filter(o=>o.status!=='billed').forEach(o=>{
+    let prio=1, sub='';
+    const packTime=new Date(o.packTime);
+    const totalPaid=(o.advPaid||0)+(o.addlPaid||0);
+    const pending=Math.max(0,o.total-totalPaid);
+    if(packTime<=now){ prio=3; sub='⏰ Due NOW'; }
+    else { const d=packTime.getTime()-now; sub=(d<=3600000?'🕐 Due in <1h · ':'')+packTime.toLocaleDateString('en-IN',{day:'numeric',month:'short'})+' '+packTime.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}); if(d<=3600000) prio=2; }
+    items.push({ type:'advance', name:o.custName, phone:o.phone||'', sub:sub+' · ₹'+fmt(pending)+' pending', page:'advance', id:o.id, priority: prio });
+  });
+  items.sort((a,b)=>b.priority-a.priority);
+  return items;
+}
+
+function updateReminderCount(){
+  const wrap=document.getElementById('bellWrap');
+  if(!wrap) return;
+  const items=getBellItems();
+  const count=items.filter(i=>i.priority>=2).length; // only urgent-ish
+  const badge=document.getElementById('bellCount');
+  if(count>0){ badge.textContent=count; badge.style.display='flex'; }
+  else { badge.style.display='none'; }
+  if(bellPanelOpen) renderBellPanel();
+}
+
+function toggleBellPanel(){
+  const panel=document.getElementById('bellPanel');
+  if(!panel) return;
+  if(bellPanelOpen){ panel.style.display='none'; bellPanelOpen=false; }
+  else { renderBellPanel(); panel.style.display='block'; bellPanelOpen=true; }
+}
+
+function renderBellPanel(){
+  const panel=document.getElementById('bellPanel');
+  if(!panel) return;
+  const items=getBellItems();
+  if(!items.length){
+    panel.innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">🔕 No reminders</div>';
+    return;
+  }
+  panel.innerHTML=`
+    <div style="padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;">Reminders (${items.length})</div>
+    ${items.map((it,idx)=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid ${it.priority>=3?'var(--red)':it.priority===2?'var(--accent2)':'transparent'};background:${idx%2?'transparent':'var(--surface2)'};" onclick="closeBellPanel();navigateToBellItem('${it.type}','${String(it.id).replace(/'/g,"\\'")}');" title="Open">
+        <span style="font-size:15px;">${it.type==='udhaar'?'💸':'📋'}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(it.name)}</div>
+          <div style="font-size:11px;color:var(--muted);${it.priority>=3?'color:var(--red);font-weight:700;':''}">${it.sub}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:10px;" onclick="event.stopPropagation();copyBellPhone('${String(it.phone).replace(/'/g,"\\'")}')" title="Copy phone">📞</button>
+      </div>`).join('')}
+    <div style="padding:8px 14px;font-size:10px;color:var(--muted);text-align:center;">Click an item to jump to it</div>`;
+}
+
+function navigateToBellItem(type, id){
+  if(type==='udhaar'){
+    navigate('udhaar'); openUdhaarDetail(id);
+  } else {
+    navigate('advance'); highlightAdvCard(id);
+  }
+}
+
+function highlightAdvCard(id){
+  setTimeout(()=>{
+    const cards=document.querySelectorAll('#advanceOrdersWrap .adv-card');
+    cards.forEach(c=>c.style.border='1px solid var(--border)');
+    const target=advanceOrders.find(o=>o.id===id);
+    if(!target) return;
+    // reverse render: newest first = index from end
+    const idx=advanceOrders.length-1-advanceOrders.indexOf(target);
+    const card=cards[idx];
+    if(card){
+      card.style.border='2px solid var(--accent)';
+      card.scrollIntoView({behavior:'smooth',block:'center'});
+      card.style.boxShadow='0 0 0 3px rgba(64,200,240,.25)';
+      setTimeout(()=>{ card.style.border='1px solid var(--border)'; card.style.boxShadow='none'; }, 2500);
+    }
+  }, 250);
+}
+
+function copyBellPhone(p){ if(p) copyUdhaarPhone(p); }
+
+function closeBellPanel(){ const p=document.getElementById('bellPanel'); if(p) p.style.display='none'; bellPanelOpen=false; }
+
 function setCustomPrice(id, val){
   const item = cart.find(x=>x.id===id); if(!item) return;
   const v = val.trim();
@@ -3410,7 +3578,7 @@ function renderUdhaar(){
       return `<div class="ud-card" onclick="openUdhaarDetail('${rec.id}')">
         <div class="ud-card-header">
           <div>
-            <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:16px;color:var(--red);font-weight:800;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:12px;color:var(--muted);font-weight:500;">🕐 ${lastTxnDate}</span>`:''}</div>
+            <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:16px;color:var(--red);font-weight:800;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:15px;color:var(--accent2);font-weight:800;">🕐 ${lastTxnDate}</span>`:''}</div>
             ${rec.phone?`<div class="ud-card-phone"><span style="cursor:pointer;" title="Click to copy phone" onclick="event.stopPropagation();copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">📞 ${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;margin-left:4px;" title="WhatsApp ${rec.phone}" onclick="event.stopPropagation();waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲</button></div>`:''}
             ${rec.reference?`<div style="font-size:11px;color:var(--accent2);margin-top:2px;">🏷️ ${rec.reference}</div>`:''}
             ${hasCredit?`<div style="font-size:10px;color:var(--accent2);margin-top:3px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
