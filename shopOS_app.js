@@ -2354,7 +2354,7 @@ function getBellItems(){
     if(isDismissed('udhaar',r.id)) return;
     const due = udhaarNotificationDue(r);
     if(!due) return;
-    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:due.label, page:'udhaar', id:r.id, priority: 2 });
+    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:due.label, page:'udhaar', id:r.id, priority: 2, fk: due.fk });
   });
   // Advance orders due (scheduled/ready, not billed)
   advanceOrders.filter(o=>o.status!=='billed').forEach(o=>{
@@ -2371,23 +2371,29 @@ function getBellItems(){
   return items;
 }
 
-// Returns {label} if an udhaar reminder is set AND its trigger time has passed, else null
+// Returns {label, fk} if an udhaar reminder is set AND its trigger time has passed, else null
 function udhaarNotificationDue(rec){
   // 1) Fixed date reminder for this customer, fired=false, time reached
   if(_udhaarFixedReminders.length){
     const fr=_udhaarFixedReminders.find(r =>
       !r.fired && (r.custName||'').toLowerCase()===rec.name.toLowerCase() && new Date(r.date)<=new Date());
-    if(fr) return { label:'⏰ Reminder· '+fr.note||'Due reminder' };
+    if(fr) return { label:'⏰ Reminder· '+fr.note||'Due reminder', fk:'fixed|'+fr.id };
   }
-  // 2) Interval reminders: bill age from oldest pending bill reached any set interval
+  // 2) Interval reminders: only show AFTER the popup already fired once (persistent),
+  //    and only until it has been shown once in the bell (one-shot, no daily nagging)
   if(_udhaarReminderIntervals.length && rec.totalPending>0){
     const oldestBill=rec.bills.find(b=>b.pending>0);
     if(oldestBill){
       const ageMin=Math.floor((Date.now()-new Date(oldestBill.date).getTime())/(1000*60));
       const matched = _udhaarReminderIntervals.filter(m=>ageMin>=m);
       if(matched.length){
-        const display = Math.min(...matched)<1440 ? fmtInterval(Math.min(...matched)) : Math.floor(Math.min(...matched)/1440)+'d';
-        return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · '+display+' reminder due' };
+        for(const m of matched){
+          const fk=String(rec.id)+'|'+oldestBill.date+'|'+m;
+          if(_udhaarIntFired[fk] && !_udhaarIntShown[fk]){
+            const display = m<1440 ? fmtInterval(m) : Math.floor(m/1440)+'d';
+            return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · '+display+' reminder due', fk:fk };
+          }
+        }
       }
     }
   }
@@ -2445,6 +2451,10 @@ function renderBellPanel(){
     panel.innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">🔕 No reminders</div>';
     return;
   }
+  // Mark interval reminders as shown (one-shot) so they don't nag every day
+  let needsSave=false;
+  (items||[]).forEach(it=>{ if(it.fk && !/^fixed\|/.test(it.fk) && !_udhaarIntShown[it.fk]){ _udhaarIntShown[it.fk]=true; needsSave=true; } });
+  if(needsSave) _saveReminderState();
   panel.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;">
       <span>Reminders (${items.length})</span>
@@ -6633,19 +6643,33 @@ const REMINDER_PRESETS=[
 function _loadReminderState(){
   try{
     const v=JSON.parse(localStorage.getItem('shopOS_reminderIntervals'));
-    if(v&&Array.isArray(v)&&v.length) _udhaarReminderIntervals=v;
+    const OLD_DEFAULT=[7200,14400,21600,43200];
+    // Ignore the old auto-enabled defaults; only load if the user actually picked intervals.
+    if(v&&Array.isArray(v)&&v.length && JSON.stringify(v)!==JSON.stringify(OLD_DEFAULT)) _udhaarReminderIntervals=v;
   }catch(e){}
   try{
     const v=JSON.parse(localStorage.getItem('shopOS_fixedReminders'));
     if(v&&Array.isArray(v)) _udhaarFixedReminders=v;
   }catch(e){}
+  try{
+    const v=JSON.parse(localStorage.getItem('shopOS_udhaarIntFired'));
+    if(v&&typeof v==='object') _udhaarIntFired=v;
+  }catch(e){}
+  try{
+    const v=JSON.parse(localStorage.getItem('shopOS_udhaarIntShown'));
+    if(v&&typeof v==='object') _udhaarIntShown=v;
+  }catch(e){}
 }
 function _saveReminderState(){
   localStorage.setItem('shopOS_reminderIntervals',JSON.stringify(_udhaarReminderIntervals));
   localStorage.setItem('shopOS_fixedReminders',JSON.stringify(_udhaarFixedReminders));
+  localStorage.setItem('shopOS_udhaarIntFired',JSON.stringify(_udhaarIntFired));
+  localStorage.setItem('shopOS_udhaarIntShown',JSON.stringify(_udhaarIntShown));
 }
-let _udhaarReminderIntervals=[7200,14400,21600,43200]; // default 5,10,15,30 days in minutes
+let _udhaarReminderIntervals=[]; // default: none set; user adds manually
 let _udhaarFixedReminders=[]; // [{id, custName, date, note, fired}]
+let _udhaarIntFired={}; // key: recId|billDate|intervalMin -> true (popup fired once)
+let _udhaarIntShown={}; // key: same -> true (already shown in bell once)
 _loadReminderState();
 
 function fmtInterval(min){
@@ -6929,8 +6953,7 @@ function snoozeReminder(){
 function checkAndFireUdhaarReminders(){
   const now=Date.now();
   let reminded=0;
-  const _lastFiredKey = r => `_remind_${r.id || r.custName}_${r.totalPending}`;
-  // Check interval reminders
+  // Check interval reminders — fires only ONCE per bill per interval (persistent)
   if(_udhaarReminderIntervals.length){
     udhaarRecords.forEach(rec=>{
       if(rec.totalPending<=0) return;
@@ -6938,11 +6961,10 @@ function checkAndFireUdhaarReminders(){
       if(!oldestBill) return;
       const billAgeMin=Math.floor((now-new Date(oldestBill.date).getTime())/(1000*60));
       _udhaarReminderIntervals.forEach((intervalMin)=>{
-        if(billAgeMin>=intervalMin && billAgeMin<intervalMin+1){
-          const fk = _lastFiredKey(rec)+'_'+intervalMin;
-          if(window[fk]) return; // already fired for this interval
-          window[fk] = true;
-          setTimeout(()=>{ delete window[fk]; }, 60000); // reset after 1 min
+        if(billAgeMin>=intervalMin){
+          const fk = String(rec.id)+'|'+oldestBill.date+'|'+intervalMin;
+          if(_udhaarIntFired[fk]) return; // already fired once
+          _udhaarIntFired[fk]=true; _saveReminderState();
           const display=intervalMin<1440?fmtInterval(intervalMin):Math.floor(intervalMin/1440)+' day'+(Math.floor(intervalMin/1440)===1?'':'s');
           showReminderPopup(
             '⏰ Udhaar Reminder',
