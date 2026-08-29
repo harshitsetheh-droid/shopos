@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShopOS — Retail Manager</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="shopOS_style.css?v=14">
+</head>
+<body>
+
+<!-- ════ AUTH SCREEN ════ -->
+<div id="authScreen">
+  <div class="auth-box">
+    <div class="auth-logo">Shop<span>OS</span></div>
+    <div class="auth-tagline">Retail Manager — Sign in to continue</div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tabLogin" onclick="switchAuthTab('login')">Login</div>
+        <div class="auth-tab" id="tabSignup" onclick="switchAuthTab('signup')">Sign Up</div>
+      </div>
+
+      <!-- ── LOGIN FORM ── -->
+      <div id="formLogin">
+        <div class="auth-error" id="loginError"></div>
+        <label class="auth-label">Username or Email</label>
+        <input class="auth-input" id="loginUser" placeholder="Enter username or email" autocomplete="username"
+          onkeydown="if(event.key==='Enter')doLogin()">
+        <label class="auth-label">Password</label>
+        <div class="auth-pw-wrap">
+          <input class="auth-input" id="loginPass" type="password" placeholder="Enter password" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter')doLogin()">
+          <span class="pw-eye" onclick="togglePwVis('loginPass',this)" title="Show/hide">👁</span>
+        </div>
+        <button class="auth-btn" onclick="doLogin()">→ Sign In</button>
+        <div class="auth-hint">Don't have an account? Click <strong>Sign Up</strong> above.</div>
+      </div>
+
+      <!-- ── SIGNUP FORM ── -->
+      <div id="formSignup" style="display:none;">
+        <div class="auth-error" id="signupError"></div>
+        <div class="auth-success" id="signupSuccess"></div>
+
+        <label class="auth-label">Full Name</label>
+        <input class="auth-input" id="signupName" placeholder="Your full name" autocomplete="name">
+
+        <label class="auth-label">Email</label>
+        <div class="auth-input-wrap">
+          <input class="auth-input" id="signupEmail" type="email" placeholder="yourname@gmail.com" autocomplete="email"
+            oninput="checkEmailLive()">
+          <span class="auth-field-status" id="emailStatus"></span>
+        </div>
+
+        <label class="auth-label">Username</label>
+        <div class="auth-input-wrap">
+          <input class="auth-input" id="signupUser" placeholder="Choose a username" autocomplete="off"
+            oninput="checkUsernameLive()">
+          <span class="auth-field-status" id="usernameStatus"></span>
+        </div>
+        <div class="auth-suggestions" id="usernameSuggestions"></div>
+
+        <label class="auth-label">Password</label>
+        <div class="auth-pw-wrap">
+          <input class="auth-input" id="signupPass" type="password" placeholder="Create a strong password"
+            oninput="checkPasswordLive()" autocomplete="new-password">
+          <span class="pw-eye" onclick="togglePwVis('signupPass',this)" title="Show/hide">👁</span>
+        </div>
+        <!-- Password strength bar -->
+        <div class="pw-strength-bar" id="pwStrengthBar">
+          <div class="pw-strength-fill" id="pwStrengthFill"></div>
+        </div>
+        <div class="pw-rules" id="pwRules">
+          <div class="pw-rule" id="rule-len"><span class="rule-icon">✗</span> Minimum 8 characters</div>
+          <div class="pw-rule" id="rule-upper"><span class="rule-icon">✗</span> At least 1 uppercase letter</div>
+          <div class="pw-rule" id="rule-num"><span class="rule-icon">✗</span> At least 1 number</div>
+          <div class="pw-rule" id="rule-special"><span class="rule-icon">✗</span> At least 1 special character (!@#$…)</div>
+        </div>
+
+        <label class="auth-label">Confirm Password</label>
+        <div class="auth-pw-wrap">
+          <input class="auth-input" id="signupPass2" type="password" placeholder="Repeat password"
+            oninput="checkConfirmLive()" autocomplete="new-password"
+            onkeydown="if(event.key==='Enter')doSignup()">
+          <span class="pw-eye" onclick="togglePwVis('signupPass2',this)" title="Show/hide">👁</span>
+        </div>
+        <div class="auth-match-msg" id="matchMsg"></div>
+
+        <label class="auth-label">Where are you from? <span style="color:var(--red);font-weight:700;">*</span></label>
+        <input class="auth-input" id="signupLocation" placeholder="e.g. Delhi, Mumbai, Jaipur..." autocomplete="address-level2" required
+          onkeydown="if(event.key==='Enter')doSignup()">
+
+        <!-- Google verification note -->
+        <div class="auth-google-note" id="googleVerifyNote" style="display:none;">
+          <span>📧</span>
+          <span>A verification link will be sent to your email. (Demo: verification skipped for local use.)</span>
+        </div>
+
+        <button class="auth-btn" onclick="doSignup()">✓ Create Account</button>
+        <div class="auth-hint">Already have an account? Click <strong>Login</strong> above.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ MAIN APP ════ -->
+<div class="app app-hidden" id="mainApp">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">Shop<span>OS</span></div>
+    <span style="font-size:11px;color:var(--muted);" id="clockDisplay"></span>
+    <div class="theme-toggle">
+      <div id="authUserLabel" style="font-size:11px;color:var(--muted);margin-right:8px;"></div>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="font-size:11px;padding:5px 12px;">Sign Out</button>
+      <div class="toggle-wrap" onclick="toggleTheme()">
+        <span class="toggle-label" id="themeLabel">🌙 Dark</span>
+        <div class="toggle-track"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="nav-section">Main</div>
+    <div class="nav-item" data-page="dashboard"  onclick="navigate('dashboard')"><span class="icon">📊</span> Dashboard <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+D</kbd></div>
+    <div class="nav-item" data-page="pos"         onclick="navigate('pos')"><span class="icon">🛒</span> Billing Counter <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+B</kbd></div>
+    <div class="nav-item" data-page="advance"     onclick="navigate('advance')"><span class="icon">📋</span> Advance Orders <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+A</kbd></div>
+    <div class="nav-item" data-page="udhaar"      onclick="navigate('udhaar')"><span class="icon">💸</span> Udhaar (Credit) <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+U</kbd></div>
+
+    <div class="nav-item" data-page="inventory"   onclick="navigate('inventory')"><span class="icon">📦</span> Inventory <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+I</kbd></div>
+    <div class="nav-item" data-page="categories"  onclick="navigate('categories')"><span class="icon">🏷️</span> Categories <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+C</kbd></div>
+    <div class="nav-item" data-page="sales"       onclick="navigate('sales')"><span class="icon">🧾</span> Sales History <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+S</kbd></div>
+    <div class="nav-item" data-page="invhistory"  onclick="navigate('invhistory')"><span class="icon">📋</span> Inventory History <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+H</kbd></div>
+    <div class="nav-item" data-page="customers"   onclick="navigate('customers')"><span class="icon">📋</span> Customer Ledger <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+L</kbd></div>
+
+    <div class="nav-item" data-page="reports"     onclick="navigate('reports')"><span class="icon">📈</span> Reports <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+R</kbd></div>
+    <div class="nav-item" data-page="expenses"    onclick="navigate('expenses')"><span class="icon">💸</span> Expenses <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+X</kbd></div>
+    <div class="nav-item" data-page="defaults"    onclick="navigate('defaults')"><span class="icon">⚙️</span> By Default <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+F</kbd></div>
+    <div class="nav-item" data-page="notes"       onclick="navigate('notes')"><span class="icon">📝</span> Notes <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+N</kbd></div>
+    <div class="nav-item" data-page="scanadd"     onclick="navigate('scanadd')"><span class="icon">📷</span> Scan to Add <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+Z</kbd></div>
+    <div class="nav-item" data-page="qr"          onclick="navigate('qr')"><span class="icon">🔲</span> QR Generator <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+Q</kbd></div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- DASHBOARD -->
+    <div class="page" id="page-dashboard">
+      <div class="page-header">Good day! 👋</div>
+      <div class="page-sub">Here's your store overview.</div>
+      <div id="dashUdhaarToggleWrap"></div>
+      <div class="stats-row" id="statsRow"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div class="card"><div class="card-title">Sales This Week</div><div class="chart-bar" id="weekChart"></div></div>
+        <div><div class="card"><div class="card-title">✏️ Quick Product Price Update</div><div id="quickPriceUpdateWrap"></div></div><div class="card" style="margin-top:20px;"><div class="card-title">Low Stock Alerts</div><div id="lowStockList"></div></div></div>
+      </div>
+      <div class="card" style="margin-top:20px;"><div class="card-title">Recent Transactions</div><div id="recentSalesWrap"></div></div>
+    </div>
+
+    <!-- BILLING COUNTER -->
+    <div class="page" id="page-pos">
+      <div class="page-header">Billing Counter</div>
+      <div class="page-sub">Tap a product to add it to the cart.</div>
+      <div class="pos-layout">
+        <div>
+          <div class="toolbar">
+            <div class="autocomplete-wrap" style="flex:1;max-width:280px;">
+              <input class="search-bar" style="width:100%;" placeholder="Search products..." autocomplete="off" oninput="filterPOSAndAC(this.value)" onblur="setTimeout(()=>{document.getElementById('posAcList').style.display='none';},200)" id="posSearch">
+              <div class="autocomplete-list" id="posAcList"></div>
+            </div>
+            <input id="posBarcodeScan" style="max-width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);" placeholder="📷 Scan barcode..." autocomplete="off" onkeydown="if(event.key==='Enter'){handleBarcodeScan(this.value)}">
+            <div class="autocomplete-wrap" style="min-width:160px;">
+              <input class="search-bar" style="width:100%;" placeholder="All Categories..." autocomplete="off" oninput="filterPOSCatAC(this.value)" onfocus="filterPOSCatAC(this.value)" onblur="setTimeout(()=>{document.getElementById('posCatAcList').style.display='none';},200)" id="posCatInput">
+              <div class="autocomplete-list" id="posCatAcList"></div>
+            </div>
+          </div>
+          <div class="product-grid" id="productGrid"></div>
+        </div>
+        <div class="cart" id="cartPanel">
+          <div class="cart-resize-handle cart-resize-w" id="cartResizeW" title="Drag to resize width"></div>
+          <div class="cart-resize-handle cart-resize-h" id="cartResizeH" title="Drag to resize height"></div>
+          <div class="cart-resize-handle cart-resize-c" id="cartResizeC" title="Drag to resize"></div>
+          <div class="card-title">Current Cart</div>
+          <div style="padding:0 0 6px;">
+            <label style="font-size:10px;color:var(--muted);margin-bottom:2px;display:block;">📍 Location (for GST)</label>
+            <input id="cartCustLocation" class="search-bar" style="width:100%;font-size:11px;padding:3px 8px;box-sizing:border-box;" placeholder="e.g. Jaipur, Rajasthan" oninput="onCustLocationChange()">
+          </div>
+          <div class="cart-items" id="cartItems"><div class="empty-state" style="padding:20px 0;"><div class="big">🛒</div><p>Cart is empty</p></div></div>
+          <div class="cart-summary">
+            <div class="summary-row"><span>Subtotal</span><span id="subtotal">₹0.00</span></div>
+            <div class="summary-row" id="taxRow" style="display:none;"><span>GST</span><span id="taxAmt">₹0.00</span></div>
+            <div id="gstBreakdownWrap" style="display:none;">
+              <div style="font-size:11px;color:var(--muted);margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:6px;" onclick="toggleGstBreakdown()">
+                <span id="gstBreakdownToggleIcon">▶</span> GST breakdown per item
+              </div>
+              <div id="gstBreakdownPanel" class="gst-breakdown" style="display:none;"></div>
+            </div>
+            <div class="summary-row" style="align-items:center;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--muted);margin:0;">
+                <input type="checkbox" id="applyTaxChk" onchange="updateTotals()" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+                Apply GST on bill
+              </label>
+            </div>
+            <div class="summary-row" style="align-items:center;">
+              <label style="font-size:12px;color:var(--muted);margin:0;cursor:default;">Discount % <span style="color:var(--muted);font-size:9px;">(before GST)</span></label>
+              <input id="cartDiscountPct" type="number" min="0" max="100" step="0.1" value="0" oninput="updateTotals()" style="width:62px;font-size:12px;padding:3px 6px;text-align:center;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--accent);outline:none;">
+            </div>
+            <div class="summary-row" id="discountRow" style="display:none;"><span>Discount (−)</span><span id="discountAmt" style="color:var(--green);">−₹0.00</span></div>
+            <div class="summary-row total"><span>TOTAL</span><span id="cartTotal">₹0.00</span></div>
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+              <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="checkout()">✓ Checkout</button>
+              <button class="btn btn-ghost" style="width:100%;justify-content:center;" onclick="clearCart()">Clear Cart</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADVANCE ORDERS -->
+    <div class="page" id="page-advance">
+      <div class="page-header">Advance Orders</div>
+      <div class="page-sub">Pre-book orders with packing time and advance payment tracking.</div>
+      <div class="toolbar"><div class="right"><button class="btn btn-primary" onclick="openAdvanceOrder()">+ New Advance Order</button></div></div>
+      <div id="advanceOrdersWrap"></div>
+    </div>
+
+    <!-- INVENTORY -->
+    <div class="page" id="page-inventory">
+      <div class="page-header" style="display:flex;align-items:center;gap:10px;">Inventory <span id="invProductCount" style="font-size:14px;font-weight:600;color:var(--accent);background:var(--surface2);padding:3px 10px;border-radius:12px;"></span></div>
+      <div class="page-sub">Manage your products and stock levels.</div>
+      <div class="toolbar">
+        <div class="autocomplete-wrap" style="flex:1;max-width:280px;">
+          <input class="search-bar" style="width:100%;" placeholder="Search products..." autocomplete="off" oninput="filterInvAndAC(this.value)" onblur="setTimeout(()=>{document.getElementById('invAcList').style.display='none';},200)" id="invSearch">
+          <div class="autocomplete-list" id="invAcList"></div>
+        </div>
+        <select id="invCatFilter" onchange="renderInventory()" style="min-width:160px;width:auto;"><option value="">All Categories</option></select>
+        <select id="invSortFilter" onchange="renderInventory()" style="min-width:160px;width:auto;">
+          <option value="name">Sort: Name A-Z</option>
+          <option value="name_desc">Sort: Name Z-A</option>
+          <option value="price_asc">Sort: Price Low to High</option>
+          <option value="price_desc">Sort: Price High to Low</option>
+          <option value="stock_asc">Sort: Stock Low to High</option>
+          <option value="stock_desc">Sort: Stock High to Low</option>
+          <option value="newest">Sort: Recently Added</option>
+          <option value="oldest">Sort: Oldest First</option>
+        </select>
+        <div class="right">
+          <button class="btn btn-ghost" onclick="openImportModal()">📥 Import Excel</button>
+          <button class="btn btn-ghost" onclick="exportStockExcel()">📤 Export Excel</button>
+          <button class="btn btn-primary" onclick="openAddProduct()">+ Add Product</button>
+          <button class="btn btn-ghost" onclick="deleteAllData()" style="color:var(--red,#ef4444);">🗑️ Delete All</button>
+        </div>
+      </div>
+      <div class="card"><div id="inventoryWrap"></div></div>
+    </div>
+
+    <!-- CATEGORIES -->
+    <div class="page" id="page-categories">
+      <div class="page-header">Categories</div>
+      <div class="page-sub">Organise products. Add categories before adding products.</div>
+      <div class="toolbar"><div class="right"><button class="btn btn-primary" onclick="openAddCategory()">+ Add Category</button></div></div>
+      <div class="cat-toolbar">
+        <div class="cat-search"><span class="cat-search-icon">🔍</span><input id="categorySearch" placeholder="Search categories..." autocomplete="off" oninput="renderCategories()"></div>
+        <select id="categorySort" onchange="renderCategories()" style="flex-shrink:0;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;">
+          <option value="name">Sort: A→Z</option>
+          <option value="name_desc">Sort: Z→A</option>
+          <option value="count_desc">Most Products</option>
+          <option value="count_asc">Fewest Products</option>
+        </select>
+      </div>
+      <div class="cat-grid" id="categoryGrid"></div>
+    </div>
+
+    <!-- SALES HISTORY -->
+    <div class="page" id="page-sales">
+      <div class="page-header">Sales History</div>
+      <div class="page-sub">All completed transactions.</div>
+      <div class="toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:240px;max-width:460px;">
+          <div class="autocomplete-wrap" style="flex:1;min-width:140px;">
+            <input class="search-bar" style="width:100%;" id="salesSearch" placeholder="Search sales..." autocomplete="off" oninput="salesSearchInput(this.value)" onblur="setTimeout(()=>{document.getElementById('salesSearchAcList').style.display='none';},200)">
+            <div class="autocomplete-list" id="salesSearchAcList"></div>
+          </div>
+          <select id="salesSearchMode" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface1);color:var(--text);width:90px;flex-shrink:0;" onchange="salesSearchModeChange(this.value)">
+            <option value="customer">Customer</option>
+            <option value="product">Product</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" id="salesSearchClearBtn" style="display:none;font-size:11px;padding:3px 8px;flex-shrink:0;" onclick="clearSalesSearch()">✕</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+          <button class="btn btn-ghost" style="font-size:13px;padding:6px 14px;border:1px solid var(--border);border-radius:20px;" onclick="downloadAllSales()">⬇ Download All</button>
+          <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;border:1px solid var(--red);border-radius:20px;color:var(--red);" onclick="deleteSalesByFilter()">🗑️ Delete</button>
+        </div>
+      </div>
+      <div class="filter-pills">
+        <button class="filter-pill active" onclick="setSalesFilter('month',this)">This Month</button>
+        <button class="filter-pill" onclick="setSalesFilter('week',this)">This Week</button>
+        <button class="filter-pill" onclick="setSalesFilter('today',this)">Today</button>
+        <button class="filter-pill" onclick="setSalesFilter('all',this)">All Time</button>
+        <button class="filter-pill" data-filter="gst" onclick="setSalesFilter('gst',this)">GST Collected</button>
+        <button class="filter-pill" onclick="setSalesFilter('custom',this)">Custom</button>
+        <button class="btn btn-ghost" style="font-size:14px;padding:6px 16px;border:1px solid var(--border);border-radius:20px;" onclick="downloadAllSales()">⬇ Download All</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;border:1px solid var(--red);border-radius:20px;color:var(--red);" onclick="deleteSalesByFilter()">🗑️ Delete</button>
+      </div>
+      <div id="salesDateRange" style="display:none;margin-bottom:12px;">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="font-size:12px;color:var(--muted);">From:</label>
+          <input type="text" id="salesFrom" data-calendar readonly placeholder="Select date..." style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;width:140px;">
+          <label style="font-size:12px;color:var(--muted);">To:</label>
+          <input type="text" id="salesTo" data-calendar readonly placeholder="Select date..." style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;width:140px;">
+          <span id="salesCount" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+      </div>
+      <div class="card"><div id="salesWrap"></div></div>
+    </div>
+
+    <!-- INVENTORY HISTORY -->
+    <div class="page" id="page-invhistory">
+      <div class="page-header">Inventory History</div>
+      <div class="page-sub">Track every stock entry — supplier, freight, and quantities added.</div>
+      <div class="toolbar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:280px;max-width:540px;">
+          <div style="position:relative;flex:1;">
+            <input id="invHistorySearch" type="text" placeholder="Search..." oninput="renderInventoryHistory()" style="width:100%;padding:9px 14px 9px 34px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);display:block;">
+            <input id="invHistoryDateSearch" type="text" placeholder="YYYY-MM-DD" style="width:100%;padding:9px 14px 9px 34px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface1);color:var(--text);display:none;">
+            <span id="invSearchIcon" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--muted);cursor:pointer;">🔍</span>
+          </div>
+          <div class="cust-sel-wrap" id="csw_mode" style="width:130px;">
+            <div class="cust-sel-trig" onclick="custSelToggle('csw_mode')"><span id="csw_mode_txt">All</span><span class="cust-sel-arr">▾</span></div>
+            <div class="cust-sel-list" id="csw_mode_list">
+              <div class="cust-sel-item" data-value="all" onclick="custSelPick('csw_mode','all','All');onInvHistoryModeChange()">All</div>
+              <div class="cust-sel-item" data-value="inv" onclick="custSelPick('csw_mode','inv','Inv No.');onInvHistoryModeChange()">Inv No.</div>
+              <div class="cust-sel-item" data-value="product" onclick="custSelPick('csw_mode','product','Product');onInvHistoryModeChange()">Product</div>
+              <div class="cust-sel-item" data-value="date" onclick="custSelPick('csw_mode','date','Date');onInvHistoryModeChange()">Date</div>
+              <div class="cust-sel-item" data-value="supplier" onclick="custSelPick('csw_mode','supplier','Supplier');onInvHistoryModeChange()">Supplier</div>
+              <div class="cust-sel-item" data-value="transport" onclick="custSelPick('csw_mode','transport','Transport');onInvHistoryModeChange()">Transport</div>
+            </div>
+          </div>
+          <div class="cust-sel-wrap" id="csw_sort" style="width:270px;">
+            <div class="cust-sel-trig" onclick="custSelToggle('csw_sort')"><span id="csw_sort_txt">Inv No. Low → High</span><span class="cust-sel-arr">▾</span></div>
+            <div class="cust-sel-list" id="csw_sort_list">
+              <div class="cust-sel-item sel" data-value="inv-asc" onclick="custSelPick('csw_sort','inv-asc','Inv No. Low → High');renderInventoryHistory()">Inv No. Low → High</div>
+              <div class="cust-sel-item" data-value="inv-desc" onclick="custSelPick('csw_sort','inv-desc','Inv No. High → Low');renderInventoryHistory()">Inv No. High → Low</div>
+              <div class="cust-sel-item" data-value="cost-asc" onclick="custSelPick('csw_sort','cost-asc','Cost Low → High');renderInventoryHistory()">Cost Low → High</div>
+              <div class="cust-sel-item" data-value="cost-desc" onclick="custSelPick('csw_sort','cost-desc','Cost High → Low');renderInventoryHistory()">Cost High → Low</div>
+              <div class="cust-sel-item" data-value="sb-paid-asc" onclick="custSelPick('csw_sort','sb-paid-asc','Supplier Bill Paid Low → High');renderInventoryHistory()">Supplier Bill Paid Low → High</div>
+              <div class="cust-sel-item" data-value="sb-paid-desc" onclick="custSelPick('csw_sort','sb-paid-desc','Supplier Bill Paid High → Low');renderInventoryHistory()">Supplier Bill Paid High → Low</div>
+              <div class="cust-sel-item" data-value="sb-due-asc" onclick="custSelPick('csw_sort','sb-due-asc','Supplier Bill Due Low → High');renderInventoryHistory()">Supplier Bill Due Low → High</div>
+              <div class="cust-sel-item" data-value="sb-due-desc" onclick="custSelPick('csw_sort','sb-due-desc','Supplier Bill Due High → Low');renderInventoryHistory()">Supplier Bill Due High → Low</div>
+              <div class="cust-sel-item" data-value="tp-paid-asc" onclick="custSelPick('csw_sort','tp-paid-asc','Transport Paid Low → High');renderInventoryHistory()">Transport Paid Low → High</div>
+              <div class="cust-sel-item" data-value="tp-paid-desc" onclick="custSelPick('csw_sort','tp-paid-desc','Transport Paid High → Low');renderInventoryHistory()">Transport Paid High → Low</div>
+              <div class="cust-sel-item" data-value="tp-due-asc" onclick="custSelPick('csw_sort','tp-due-asc','Transport Due Low → High');renderInventoryHistory()">Transport Due Low → High</div>
+              <div class="cust-sel-item" data-value="tp-due-desc" onclick="custSelPick('csw_sort','tp-due-desc','Transport Due High → Low');renderInventoryHistory()">Transport Due High → Low</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          <button class="btn btn-danger btn-sm" onclick="clearInventoryHistory()" title="Delete all inventory history records">🗑️ Clear All</button>
+          <button class="btn btn-sm" style="background:var(--accent2);color:#fff;" onclick="exportInventoryHistoryExcel()" title="Export inventory history to Excel">📥 Export Excel</button>
+          <button class="btn btn-primary" onclick="openAddInvEntry()">+ Record Stock Entry</button>
+        </div>
+      </div>
+      <div id="invHistoryWrap"></div>
+    </div>
+
+    <!-- UDHAAR -->
+    <div class="page" id="page-udhaar">
+      <div class="page-header">Udhaar (Credit)</div>
+      <div class="page-sub">Track outstanding credit and payments from customers.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div id="udhaarSummaryBar" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;flex:1;margin-right:16px;"></div>
+        <button class="btn btn-ghost btn-sm" onclick="openUdhaarReminderSettings()" style="white-space:nowrap;flex-shrink:0;" title="Set payment reminder intervals">⏰ Reminders</button>
+      </div>
+      <div id="udhaarWrap"></div>
+    </div>
+
+    <!-- REPORTS -->
+    <div class="page" id="page-reports">
+      <div class="page-header">Reports & Analytics</div>
+      <div class="page-sub">Business performance overview.</div>
+      <div id="reportsFilterWrap"></div>
+      <div class="stats-row" id="reportStats"></div>
+      <!-- Product Search -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">🔍 Product Sales Lookup</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <div class="autocomplete-wrap" style="flex:1;max-width:300px;">
+            <input class="search-bar" style="width:100%;" id="productLookupSearch" placeholder="Search product name..." autocomplete="off" oninput="filterProductLookup(this.value)" onblur="setTimeout(()=>{document.getElementById('productLookupAcList').style.display='none';},200)">
+            <div class="autocomplete-list" id="productLookupAcList"></div>
+          </div>
+          <span style="font-size:12px;color:var(--muted);">Type a product name to see its full sales history & peak period</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+        <div class="card"><div class="card-title">Revenue by Category</div><div id="categoryChart"></div></div>
+        <div class="card"><div class="card-title">Top Selling Products</div><div id="topProducts"></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+        <div class="card"><div class="card-title" style="color:var(--red);">📉 Lowest Selling Products</div><div id="bottomProducts"></div></div>
+        <div class="card"><div class="card-title">Payment Methods</div><div id="paymentBreakdown" style="display:flex;gap:24px;align-items:center;padding:10px 0;flex-wrap:wrap;"></div></div>
+      </div>
+      <!-- Purchase Price History -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">💰 Purchase Price History</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+          <div class="autocomplete-wrap" style="flex:1;max-width:300px;">
+            <input class="search-bar" style="width:100%;" id="purchasePriceSearch" placeholder="Search product name..." autocomplete="off" oninput="filterPurchasePriceProduct(this.value)" onblur="setTimeout(()=>{document.getElementById('purchasePriceAcList').style.display='none';},200)">
+            <div class="autocomplete-list" id="purchasePriceAcList"></div>
+          </div>
+        </div>
+        <div id="purchasePriceHistoryWrap" style="font-size:12px;color:var(--muted);">Search a product to see its purchase price changes</div>
+      </div>
+      <!-- Purchase Price Changes Report -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title">📊 Purchase Price Change Log</div>
+        <div id="priceChangeLogWrap" style="font-size:12px;"></div>
+      </div>
+    </div>
+
+    <!-- EXPENSES -->
+    <div class="page" id="page-expenses">
+      <div class="page-header">💸 Expenses</div>
+      <div class="page-sub">Track all business expenses. Total expenses are subtracted from profit.</div>
+      <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="openAddExpense()">➕ Add Expense</button>
+        <span id="expTotal" style="font-size:14px;font-weight:700;color:var(--red);"></span>
+      </div>
+      <div id="expensesWrap"></div>
+    </div>
+
+    <!-- QR GENERATOR -->
+    <div class="page" id="page-qr">
+      <div class="page-header">🔲 QR & Barcode Generator</div>
+      <div class="page-sub">Generate and save QR codes / barcodes for your products.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+        <!-- Generate New -->
+        <div class="card">
+          <div class="card-title">✨ Generate New</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn" id="qrTabBtn" onclick="switchQrTab('qr')" style="flex:1;padding:8px;border-radius:6px;font-weight:600;">🔲 QR Code</button>
+            <button class="btn" id="barcodeTabBtn" onclick="switchQrTab('barcode')" style="flex:1;padding:8px;border-radius:6px;font-weight:600;">🏷️ Barcode</button>
+          </div>
+          <div class="form-group">
+            <label>Enter text / URL / SKU</label>
+            <input id="qrInput" placeholder="e.g. product SKU or URL..." onkeydown="if(event.key==='Enter')generateQR()" style="width:100%;">
+          </div>
+          <div class="form-row" style="gap:8px;" id="qrSizeRow">
+            <div class="form-group" style="flex:1;">
+              <label>Size</label>
+              <select id="qrSize" style="width:100%;">
+                <option value="100">100</option><option value="150">150</option><option value="200" selected>200</option>
+                <option value="300">300</option><option value="400">400</option><option value="500">500</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Color</label>
+              <input id="qrColor" type="color" value="#000000" style="width:100%;height:36px;padding:2px;border-radius:6px;">
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>BG</label>
+              <input id="qrBgColor" type="color" value="#ffffff" style="width:100%;height:36px;padding:2px;border-radius:6px;">
+            </div>
+          </div>
+          <div class="form-row" style="gap:8px;display:none;" id="barcodeOptsRow">
+            <div class="form-group" style="flex:1;">
+              <label>Type</label>
+              <select id="barcodeType" style="width:100%;">
+                <option value="Code128">Code 128</option><option value="EAN13">EAN-13</option>
+                <option value="EAN8">EAN-8</option><option value="UPC">UPC-A</option>
+                <option value="Code39">Code 39</option><option value="ITF">ITF-14</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Height</label>
+              <select id="barcodeHeight" style="width:100%;">
+                <option value="50">Short</option><option value="80" selected>Medium</option><option value="120">Tall</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="btn btn-primary" onclick="generateQR()" style="flex:1;" id="generateBtn">🔲 Generate</button>
+            <button class="btn btn-ghost" onclick="saveGeneratedQr()" id="saveQrBtn" style="display:none;">💾 Save</button>
+          </div>
+          <div id="qrResult" style="display:none;margin-top:14px;text-align:center;">
+            <div id="qrCodeImageWrap" style="display:inline-block;background:#fff;border-radius:10px;padding:12px;border:1px solid var(--border);"></div>
+            <div style="margin-top:8px;display:flex;gap:6px;justify-content:center;">
+              <button class="btn btn-ghost btn-sm" onclick="downloadQR()">⬇️ Download</button>
+              <button class="btn btn-ghost btn-sm" onclick="printQR()">🖨️ Print</button>
+            </div>
+          </div>
+          <!-- Register as New Product -->
+          <div id="qrAddInvSection" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+            <div id="qrSkuStatus" style="font-size:13px;font-weight:600;margin-bottom:8px;"></div>
+            <button class="btn btn-primary" onclick="addQrProductToInventory()">➕ Register as New Product</button>
+          </div>
+        </div>
+
+        <!-- Generate for Existing Product -->
+        <div class="card">
+          <div class="card-title">📦 For Existing Product</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn" id="existQrTabBtn" onclick="switchExistQrTab('qr')" style="flex:1;padding:8px;border-radius:6px;font-weight:600;">🔲 QR Code</button>
+            <button class="btn" id="existBarcodeTabBtn" onclick="switchExistQrTab('barcode')" style="flex:1;padding:8px;border-radius:6px;font-weight:600;">🏷️ Barcode</button>
+          </div>
+          <div class="form-group">
+            <label>Search Product</label>
+            <div class="autocomplete-wrap" style="width:100%;">
+              <input id="qrExistingSearch" class="search-bar" style="width:100%;" placeholder="Type product name or SKU..." autocomplete="off" oninput="filterQrExistingProducts(this.value)" onblur="setTimeout(()=>document.getElementById('qrExistingAcList').style.display='none',200)">
+              <div class="autocomplete-list" id="qrExistingAcList"></div>
+              <input type="hidden" id="qrExistingProduct" value="">
+            </div>
+          </div>
+          <div id="qrExistingPreview" style="display:none;margin-top:10px;font-size:13px;color:var(--muted);"></div>
+          <div class="form-row" style="gap:8px;display:none;margin-top:8px;" id="existBarcodeOptsRow">
+            <div class="form-group" style="flex:1;">
+              <label>Barcode Type</label>
+              <select id="existBarcodeType" style="width:100%;">
+                <option value="Code128">Code 128</option><option value="EAN13">EAN-13</option>
+                <option value="EAN8">EAN-8</option><option value="UPC">UPC-A</option>
+                <option value="Code39">Code 39</option><option value="ITF">ITF-14</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1;">
+              <label>Height</label>
+              <select id="existBarcodeHeight" style="width:100%;">
+                <option value="50">Short</option><option value="80" selected>Medium</option><option value="120">Tall</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn btn-primary" onclick="generateQrForExisting()" id="genExistingBtn" disabled style="flex:1;">🔲 Generate QR</button>
+            <button class="btn btn-ghost" onclick="saveExistingQr()" id="saveExistingBtn" style="display:none;">💾 Save</button>
+          </div>
+          <div id="qrExistingResult" style="display:none;margin-top:12px;text-align:center;">
+            <div id="qrExistingImageWrap" style="display:inline-block;background:#fff;border-radius:10px;padding:10px;border:1px solid var(--border);"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+          <span>📋 Saved QR Codes</span>
+          <span style="display:flex;gap:6px;align-items:center;">
+            <span id="qrCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span>
+            <button class="btn btn-sm" style="font-size:11px;" onclick="exportAllQrCodes()">📥 Export All</button>
+            <button class="btn btn-danger btn-sm" style="font-size:11px;" onclick="deleteAllQrCodes()">🗑️ Delete All</button>
+          </span>
+        </div>
+        <div id="qrHistoryWrap"><div class="empty-state" style="padding:30px 0;text-align:center;color:var(--muted);">No QR codes saved yet.</div></div>
+      </div>
+    </div>
+
+    <!-- SCAN TO ADD -->
+    <div class="page" id="page-scanadd">
+      <div class="page-header">📷 Scan to Add Product</div>
+      <div class="page-sub">Scan a barcode / QR code to look up in inventory or add as new product.</div>
+      <div class="card" style="max-width:600px;margin:0 auto;">
+        <div class="card-title" style="font-size:15px;">📷 Barcode / QR Scanner</div>
+        <div style="margin:16px 0;">
+          <input id="scanAddInput" placeholder="Scan barcode or QR code here..." style="width:100%;padding:14px 16px;font-size:18px;text-align:center;border:2px solid var(--accent);border-radius:10px;outline:none;background:var(--surface1);color:var(--text);"
+            oninput="scanAddDebounce(this)"
+            onkeydown="if(event.key==='Enter'){handleScanAdd(this.value);this.value='';}"
+            autofocus>
+        </div>
+        <div id="scanAddResult" style="display:none;"></div>
+        <div id="scanAddNotFound" style="display:none;text-align:center;padding:20px 0;">
+          <div style="font-size:40px;margin-bottom:8px;">❌</div>
+          <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Product not found</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px;">No product matches this barcode/QR in your inventory.</div>
+          <button class="btn btn-primary" onclick="scanAddAsNewProduct()">➕ Add as New Product</button>
+        </div>
+        <div id="scanAddQrSettings" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);font-size:14px;display:none;">
+          <div style="font-weight:600;margin-bottom:8px;">Auto-generate for new products:</div>
+          <div style="display:flex;gap:20px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;"><input type="radio" name="scanQrChoice" value="qr" checked> 🔲 Generate QR</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;"><input type="radio" name="scanQrChoice" value="barcode"> 🏷️ Generate Barcode</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px;"><input type="radio" name="scanQrChoice" value="none"> ❌ Nothing</label>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="scanAutoRemember" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
+            <label for="scanAutoRemember" style="font-size:14px;cursor:pointer;">Remember my choice for 1 day</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BY DEFAULT SETTINGS -->
+    <div class="page" id="page-defaults">
+      <div class="page-header">⚙️ By Default</div>
+      <div class="page-sub">Set default values — auto-fills when adding new products or importing (empty cells).</div>
+      <div class="card" style="max-width:700px;">
+        <div class="card-title">📦 Product Defaults</div>
+        <div id="defaultsWrap" style="font-size:13px;"></div>
+        <div style="margin-top:18px;display:flex;gap:10px;align-items:center;">
+          <button class="btn btn-primary" onclick="saveDefaults()">💾 Save All Defaults</button>
+          <span id="defSaveMsg" style="font-size:12px;color:var(--green);"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTES -->
+    <div class="page" id="page-notes">
+      <div class="page-header">📝 Notes</div>
+      <div class="page-sub">Jot down quick notes, reminders, or any information.</div>
+      <div style="margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="addNote()">➕ Add Note</button>
+      </div>
+      <div id="notesWrap"></div>
+    </div>
+
+    <!-- CUSTOMER LEDGER -->
+    <div class="page" id="page-customers">
+      <div class="page-header">📋 Customer Ledger</div>
+      <div class="page-sub">View all customers with their complete ledger and transaction history.</div>
+      <div class="toolbar">
+        <input class="search-bar" style="flex:1;max-width:280px;" placeholder="Search customers..." autocomplete="off" id="custSearch" oninput="renderCustomers()">
+        <span id="custCount" style="font-size:12px;color:var(--muted);"></span>
+      </div>
+      <div class="card"><div id="customersWrap"></div></div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ═══════════════════════ MODALS ═══════════════════════ -->
+
+<!-- Add/Edit Product -->
+<div class="modal-bg" id="productModal">
+  <div class="modal" style="width:560px;">
+    <div class="modal-title" id="modalTitle">Add Product</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Product Name *</label>
+        <div class="combo-wrap" id="pNameWrap">
+          <input id="pName" class="combo-input" placeholder="e.g. Amul Butter" autocomplete="off"
+            oninput="comboInput('pNameWrap','pNameList',getProductNameItems,null,null)"
+            onkeydown="comboKey(event,'pNameWrap','pNameList',null,null)"
+            onfocus="comboInput('pNameWrap','pNameList',getProductNameItems,null,null)">
+          <div class="combo-list" id="pNameList"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Category *</label>
+        <div class="combo-wrap" id="pCatWrap">
+          <input id="pCategoryText" class="combo-input" placeholder="Type or select category..." autocomplete="off"
+            oninput="comboInput('pCatWrap','pCatList',getCatItems,'pCategory',null)"
+            onkeydown="comboKey(event,'pCatWrap','pCatList','pCategory',null)"
+            onfocus="comboInput('pCatWrap','pCatList',getCatItems,'pCategory',null)">
+          <input type="hidden" id="pCategory">
+          <div class="combo-list" id="pCatList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label id="pPriceLabel">SP of 1pc (₹) *</label><input id="pPrice" type="number" placeholder="0.00" min="0" step="0.01" onkeydown="modalTab(event,'pPrice')"></div>
+      <div class="form-group"><label>SP for 5pc (₹) <span style="color:var(--muted);font-size:10px;">(5+ pcs)</span></label><input id="pPrice5" type="number" placeholder="0.00" min="0" step="0.01" onkeydown="modalTab(event,'pPrice5')"></div>
+      <div class="form-group"><label>SP for 10pc (₹) <span style="color:var(--muted);font-size:10px;">(10+ pcs)</span></label><input id="pPrice10" type="number" placeholder="0.00" min="0" step="0.01" onkeydown="modalTab(event,'pPrice10')"></div>
+      <div class="form-group"><label id="pPurchasePriceLabel">Purchase Price (₹)</label><input id="pPurchasePrice" type="number" placeholder="0.00" min="0" step="0.01" onkeydown="modalTab(event,'pPurchasePrice')"></div>
+    </div>
+    <div class="form-row cols-4" id="weightPerPriceRow" style="display:none;">
+      <div class="form-group"><label>Weight per Price (gms)</label><input id="pWeightPerPrice" type="number" placeholder="e.g. 50" min="1" step="1" onkeydown="modalTab(event,'pWeightPerPrice')"></div>
+      <div class="form-group"><label style="color:var(--accent);font-size:11px;margin-top:auto;padding-bottom:2px;">e.g. ₹500 per 50gm → ₹10/gm</label></div>
+    </div>
+    <div class="form-row cols-4">
+      <div class="form-group"><label>CGST % (optional)</label><input id="pCGST" type="number" placeholder="e.g. 9" min="0" max="100" step="0.1" onkeydown="modalTab(event,'pCGST')"></div>
+      <div class="form-group"><label>SGST % (optional)</label><input id="pSGST" type="number" placeholder="e.g. 9" min="0" max="100" step="0.1" onkeydown="modalTab(event,'pSGST')"></div>
+      <div class="form-group"><label>IGST % (optional)</label><input id="pIGST" type="number" placeholder="e.g. 18" min="0" max="100" step="0.1" onkeydown="modalTab(event,'pIGST')"></div>
+      <div class="form-group"><label>Unit</label><div class="combo-wrap" id="pUnitWrap"><input id="pUnit" class="combo-input" placeholder="e.g. pcs, kg" autocomplete="off" oninput="comboInput('pUnitWrap','pUnitList',getUnitItems,null,null);onUnitChange();" onkeydown="comboKey(event,'pUnitWrap','pUnitList',null,null)" onfocus="comboInput('pUnitWrap','pUnitList',getUnitItems,null,null)"><div class="combo-list" id="pUnitList"></div></div></div>
+    </div>
+    <div class="form-row cols-3">
+      <div class="form-group"><label>Cess % (optional)</label><input id="pCess" type="number" placeholder="e.g. 5" min="0" max="100" step="0.1" onkeydown="modalTab(event,'pCess')"></div>
+      <div class="form-group"><label>HSN / SAC Code</label><input id="pHSN" placeholder="e.g. 0405" onkeydown="modalTab(event,'pHSN')"></div>
+      <div class="form-group"><label>Location <span style="color:var(--muted);font-size:11px;">(shelf/rack)</span></label><input id="pLocation" placeholder="e.g. Aisle 3, Shelf B" onkeydown="modalTab(event,'pLocation')"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>SKU / Barcode (optional)</label><input id="pSKU" placeholder="e.g. SKU-001" onkeydown="modalTab(event,'pSKU')"></div>
+      <div class="form-group"><label>Low Stock Alert at</label><input id="pLowAlert" type="number" placeholder="10" min="0" onkeydown="modalTab(event,'pLowAlert')"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Product Image <span style="color:var(--muted);font-size:11px;">(optional)</span></label>
+        <div class="product-img-upload-wrap" id="pImgWrap">
+          <div class="product-img-preview" id="pImgPreview">
+            <span id="pImgPreviewEmoji">📦</span>
+            <img id="pImgPreviewImg" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:6px;">
+          </div>
+          <div class="product-img-controls">
+            <label class="btn btn-ghost btn-sm" for="pImageFile" style="cursor:pointer;display:flex;align-items:center;gap:6px;">📷 Upload Image</label>
+            <input type="file" id="pImageFile" accept="image/*" style="display:none;" onchange="handleProductImageUpload(this)">
+            <button class="btn btn-ghost btn-sm" onclick="clearProductImage()" id="pImgClearBtn" style="display:none;margin-top:6px;font-size:11px;color:var(--red);">✕ Remove Image</button>
+            <span style="font-size:10px;color:var(--muted);margin-top:4px;">JPG, PNG, WEBP</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-group"><label id="pPPBLabel">Pieces Per Box</label><input id="pPiecesPerBox" type="number" placeholder="e.g. 45" min="1" oninput="autoCalcStock()" onkeydown="modalTab(event,'pPiecesPerBox')"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Description <span style="color:var(--muted);font-size:11px;">(optional — brand, weight, ingredients, shelf life…)</span></label>
+      <input id="pDescription" placeholder="e.g. 500g pack, Amul full cream butter, best before 3 months" onkeydown="modalTab(event,'pDescription')">
+    </div>
+    <input type="hidden" id="pEmoji" value="📦">
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px;" id="stockSectionTitle">📦 Stock Quantity (boxes + loose pieces)</div>
+      <div class="form-row" style="margin-bottom:8px;">
+        <div class="form-group"><label id="pBoxesLabel">Number of Boxes</label><input id="pNoOfBoxes" type="number" placeholder="0" min="0" oninput="autoCalcStock()" onkeydown="modalTab(event,'pNoOfBoxes')"></div>
+        <div class="form-group"><label id="pPiecesLabel">Loose Pieces</label><input id="pNoOfPieces" type="number" placeholder="0" min="0" oninput="autoCalcStock()" style="-moz-appearance:textfield;appearance:textfield;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveProduct();}else{modalTab(event,'pNoOfPieces');}"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
+        <span style="font-size:11px;color:var(--muted);">Total Stock (auto-calculated):</span>
+        <span id="stockAutoDisplay" style="font-size:13px;color:var(--accent);font-weight:600;">0 pcs</span>
+        <input type="hidden" id="pStock" value="0">
+      </div>
+    </div>
+    <input type="hidden" id="pEditId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('productModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Category -->
+<div class="modal-bg" id="categoryModal">
+  <div class="modal" style="width:400px;">
+    <div class="modal-title" id="catModalTitle">Add Category</div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Category Name *</label><input id="catName" placeholder="e.g. Food & Grocery" onkeydown="if(event.key==='Enter')document.getElementById('catEmoji').focus();"></div>
+    <div class="form-group"><label>Emoji / Icon</label><input id="catEmoji" placeholder="🛒" maxlength="4" onkeydown="if(event.key==='Enter')saveCategory();"></div>
+    <input type="hidden" id="catEditId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('categoryModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCategory()">Save Category</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHECKOUT MODAL -->
+<div class="modal-bg" id="checkoutModal">
+  <div class="modal" style="width:480px;">
+    <div class="modal-title">🧾 Checkout</div>
+
+    <!-- Customer Name (optional normally, required for udhaar) -->
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Customer Name <span id="custNameReqMark" style="color:var(--muted);font-size:11px;">(optional)</span></label>
+      <div class="combo-wrap" id="custNameWrap">
+        <input id="custName" class="combo-input" placeholder="Enter customer name..." autocomplete="off"
+          data-checkout-field="0"
+          oninput="custNameInput()"
+          onkeydown="custNameKey(event)"
+          onfocus="custNameInput()">
+        <div class="combo-list" id="custNameList"></div>
+      </div>
+    </div>
+
+    <!-- Phone (optional normally, required for udhaar) -->
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Phone Number <span id="custPhoneReqMark" style="color:var(--muted);font-size:11px;">(optional)</span></label>
+      <input id="custPhone" placeholder="e.g. 9876543210" type="tel" data-checkout-field="1" oninput="custPhoneInput()" onkeydown="checkoutFieldKeyNav(event,this)">
+    </div>
+
+    <!-- Udhaar warning for existing customers -->
+    <div id="udhaarWarnBox"></div>
+
+    <!-- Payment Type -->
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Payment Type</label>
+      <select id="payType" style="width:100%;" onchange="onPayTypeChange()" data-checkout-field="2" onkeydown="checkoutFieldKeyNav(event,this)">
+        <option value="paid">Fully Paid</option>
+        <option value="udhaar">Udhaar (Credit — full amount pending)</option>
+        <option value="partial">Partial Payment</option>
+        <option value="advance">Advance Order</option>
+      </select>
+    </div>
+
+    <!-- Udhaar extra info (shown only when udhaar selected) -->
+    <div id="udhaarExtraWrap" style="display:none;">
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>How do you know this customer? <span style="color:var(--muted);font-size:10px;">(reference / shop name)</span></label>
+        <input id="custReference" placeholder="e.g. Raja Traders, neighbour, regular customer..." style="width:100%;">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>Bill Date <span style="color:var(--muted);font-size:10px;">(defaults to today)</span></label>
+        <input id="udhaarBillDate" type="text" data-calendar value="${new Date().toISOString().slice(0,10)}" readonly placeholder="Select date..." style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:15px;background:var(--surface1);color:var(--text);cursor:pointer;">
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>Amount Paying Right Now (₹) <span style="color:var(--muted);font-size:10px;">(0 = full udhaar)</span></label>
+        <input id="udhaarPayNow" type="number" min="0" step="0.01" placeholder="0.00" style="width:100%;" oninput="updateUdhaarPreview()">
+      </div>
+      <div id="udhaarPayPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;padding:8px 12px;background:var(--surface2);border-radius:6px;display:none;"></div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label>Attach Bill Photo (optional)</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="file" id="udhaarBillPhoto" accept="image/*" onchange="handleUdhaarPhotoUpload(this)" style="display:none;">
+          <button class="btn btn-ghost" onclick="document.getElementById('udhaarBillPhoto').click()" style="font-size:12px;">📷 Attach Bill Photo</button>
+          <div id="udhaarPhotoPreview" style="display:none;position:relative;">
+            <img id="udhaarPhotoImg" style="max-width:60px;max-height:60px;border-radius:8px;border:1px solid var(--border);">
+            <button onclick="clearUdhaarPhoto()" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Partial payment -->
+    <div id="partialAmtWrap" style="display:none;margin-bottom:14px;">
+      <div class="form-group">
+        <label>Amount Paid Now (₹)</label>
+        <input id="partialAmt" type="number" min="0" step="0.01" placeholder="0.00" style="width:100%;" oninput="updatePendingPreview()" data-checkout-field="3" onkeydown="checkoutFieldKeyNav(event,this)">
+      </div>
+      <div id="pendingPreview" style="font-size:12px;color:var(--red);margin-top:6px;"></div>
+      <div id="changeReturnMsg" style="font-size:13px;color:var(--green);margin-top:6px;font-weight:600;display:none;"></div>
+    </div>
+
+    <!-- Advance Order section -->
+    <div id="advanceOrderWrap" style="display:none;margin-bottom:14px;">
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>Pickup / Packing Time *</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="coAdvPackDate" type="text" data-calendar readonly placeholder="Select date..." style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;">
+          <input id="coAdvPackTime" type="time" style="flex:1;min-width:0;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color-scheme:dark;">
+        </div>
+        <div style="font-size:11px;color:var(--accent2);margin-top:4px;">⏰ Reminder: Set pickup/packing time in the future</div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>Advance Paid Now (₹)</label>
+        <input id="coAdvPaidNow" type="number" min="0" step="0.01" placeholder="0.00" oninput="updateAdvancePreview()">
+      </div>
+      <div id="advancePayPreview" style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 12px;background:var(--surface2);border-radius:6px;display:none;"></div>
+      <!-- Transport toggle -->
+      <div style="margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);margin:0;">
+          <input type="checkbox" id="coTransportChk" onchange="toggleTransportSection()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
+          🚚 Transport / Home Delivery?
+        </label>
+      </div>
+      <!-- Transport Details -->
+      <div id="transportDetailsWrap" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+        <div style="font-size:12px;color:var(--accent2);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px;">🚚 Transport Details</div>
+        <div class="form-row" style="margin-bottom:10px;">
+          <div class="form-group"><label style="font-size:13px;">Transport kiske liye jayega? (Recipient Name)</label><input id="coTransportRecipient" placeholder="e.g. Ramesh Kumar"></div>
+          <div class="form-group"><label style="font-size:13px;">Delivery Location / Pata</label><input id="coTransportLocation" placeholder="e.g. Shop No. 5, Gandhi Nagar"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:10px;">
+          <div class="form-group"><label style="font-size:13px;">Vehicle (optional)</label><input id="coTransportVehicle" placeholder="e.g. Tempo, Truck, Auto..."></div>
+          <div class="form-group"><label style="font-size:13px;">Transport Cost (₹) — Bill mein add hoga</label><input id="coTransportCost" type="number" min="0" step="0.01" placeholder="0.00" oninput="updateAdvancePreview()"></div>
+        </div>
+        <div class="form-row" style="margin-bottom:0;">
+          <div class="form-group"><label style="font-size:13px;">Driver Ka Naam (optional)</label><input id="coDriverName" placeholder="e.g. Ramesh"></div>
+          <div class="form-group"><label style="font-size:13px;">Driver Ka Phone (optional)</label><input id="coDriverPhone" type="tel" placeholder="9876543210"></div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:10px;">
+        <label>Balance to be paid when goods are shipped/collected (₹)</label>
+        <input id="coAdvBalanceOnDelivery" type="number" min="0" step="0.01" placeholder="Auto-calculated" readonly style="background:var(--surface);color:var(--accent);font-weight:600;">
+      </div>
+    </div>
+
+    <div id="payMethodWrap" class="form-group" style="margin-bottom:14px;">
+      <label>Payment Method</label>
+      <select id="payMethod" style="width:100%;" data-checkout-field="4" onkeydown="checkoutFieldKeyNav(event,this)"><option>Cash</option><option>UPI</option><option>Card</option></select>
+    </div>
+
+    <!-- Bill total -->
+    <div id="checkoutTotalDisplay" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;"></div>
+    <div id="fullyPaidChangeMsg" style="display:none;font-size:13px;font-weight:600;color:var(--green);padding:8px 12px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:8px;margin-bottom:14px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('checkoutModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="finalizeCheckout()">✓ Confirm Sale</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt -->
+<div class="modal-bg" id="receiptModal">
+  <div class="modal" style="max-width:98vw;">
+    <div class="modal-title">🧾 Sale Complete!</div>
+    <div id="receiptContent"></div>
+    <div class="modal-actions" style="flex-wrap:wrap;gap:8px;margin-top:16px;justify-content:space-between;">
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal('receiptModal')">✕ Close</button>
+        <button class="btn btn-ghost" onclick="downloadBillPDF()" title="Download bill as PDF">⬇ Download PDF</button>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-whatsapp" onclick="sendBillWhatsApp()" title="Send PDF bill + message via WhatsApp">
+          💬 WhatsApp
+        </button>
+        <button class="btn btn-primary" onclick="printBill()">🖨 Print</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Qty Entry -->
+<div class="modal-bg" id="bulkQtyModal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title">📦 Set Quantity</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:16px;" id="bulkQtyProductName"></div>
+    <div style="margin-bottom:14px;">
+      <label style="margin-bottom:8px;display:block;">Billing in:</label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm bulk-mode-btn" id="modeBoxes" onclick="setBulkMode('boxes')">📦 Boxes</button>
+        <button class="btn btn-ghost btn-sm bulk-mode-btn" id="modePieces" onclick="setBulkMode('pieces')">🔢 Pieces</button>
+        <button class="btn btn-ghost btn-sm bulk-mode-btn" id="modeBoth" onclick="setBulkMode('both')">📦+🔢 Both</button>
+      </div>
+    </div>
+    <div id="bulkBoxesRow" class="form-row" style="display:none;margin-bottom:14px;">
+      <div class="form-group"><label>Number of Boxes</label><input id="bulkBoxes" type="number" min="0" placeholder="0" oninput="updateBulkPreview()" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('bulkPieces').focus();}"></div>
+      <div class="form-group" id="bulkPPBInfo" style="justify-content:flex-end;padding-top:22px;font-size:11px;color:var(--muted);"></div>
+    </div>
+    <div id="bulkPiecesRow" class="form-row" style="display:none;margin-bottom:14px;">
+      <div class="form-group"><label id="bulkPiecesLabel">Number of Pieces</label><input id="bulkPieces" type="number" min="0" placeholder="0" oninput="updateBulkPreview()" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('bulkNewPrice').focus();}"></div>
+      <div style="flex:1;"></div>
+    </div>
+    <div id="bulkPreview" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);display:none;"><span id="bulkPreviewText"></span></div>
+    <!-- Custom price override (optional) -->
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px;">💰 Override Price <span style="opacity:.6;">(Discount % daalo → price auto; Price daalo → discount 0)</span></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <label style="font-size:10px;color:var(--muted);margin-bottom:3px;display:block;">Selling Price (₹)</label>
+          <input id="bulkNewPrice" type="number" min="0" step="0.01" placeholder="e.g. 9.00"
+            style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;"
+            oninput="onOverridePriceInput()"
+            onkeydown="if(event.key==='Enter'){this.blur();applyBulkQty();}">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--muted);margin-bottom:3px;display:block;">Discount (%)</label>
+          <input id="bulkNewDisc" type="number" min="0" max="100" step="0.1" placeholder="0"
+            style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;"
+            oninput="onOverrideDiscInput()"
+            onkeydown="if(event.key==='Enter'){this.blur();applyBulkQty();}">
+        </div>
+      </div>
+    </div>
+    <input type="hidden" id="bulkProductId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('bulkQtyModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="applyBulkQty()">✓ Add to Cart</button>
+    </div>
+  </div>
+</div>
+
+<!-- Record Stock Entry (with option to add new product inline) -->
+<div class="modal-bg" id="invEntryModal">
+  <div class="modal" style="width:720px;">
+    <div class="modal-title">📋 Record Stock Entry</div>
+    <div class="form-row cols-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+      <div class="form-group"><label>Destination / Origin</label><input id="ieDestination" placeholder="e.g. Jaipur" onkeydown="if(event.key==='Enter')document.getElementById('ieTransportPhoto').focus()"></div>
+      <div class="form-group"><label>Transport Bill Photo</label><input id="ieTransportPhoto" type="file" accept="image/*,.pdf,.xls,.xlsx,.csv,.xlsm" onchange="previewInvEntryPhoto(this,'ieTransportPhotoPreview')"><div id="ieTransportPhotoPreview" style="display:none;margin-top:4px;"></div></div>
+      <div class="form-group"><label>Supplier Bill Photo</label><input id="ieSupplierBillPhoto" type="file" accept="image/*,.pdf,.xls,.xlsx,.csv,.xlsm" onchange="previewInvEntryPhoto(this,'ieSupplierBillPhotoPreview')"><div id="ieSupplierBillPhotoPreview" style="display:none;margin-top:4px;"></div></div>
+      <div class="form-group"><label>Total Parcels</label><input id="ieParcelCount" type="number" placeholder="0" min="0" step="1" onkeydown="if(event.key==='Enter')document.getElementById('ieSupplier').focus()"></div>
+    </div>
+    <div class="form-row cols-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+      <div class="form-group"><label>Supplier Name</label><input id="ieSupplier" placeholder="Raj Traders" onkeydown="if(event.key==='Enter')document.getElementById('ieSupplierBill').focus()"></div>
+      <div class="form-group"><label>Supplier Bill Total (₹)</label><input id="ieSupplierBill" type="number" placeholder="0" min="0" step="0.01" oninput="updateSupplierBillStatus()" onkeydown="if(event.key==='Enter')document.getElementById('ieSupplierBillPaid').focus()"></div>
+      <div class="form-group"><label>Supplier Bill Paid (₹)</label><input id="ieSupplierBillPaid" type="number" placeholder="0" min="0" step="0.01" oninput="updateSupplierBillStatus()" onkeydown="if(event.key==='Enter')document.getElementById('ieSupplierBillStatus').focus()"></div>
+      <div class="form-group"><label>Supplier Bill Status</label><select id="ieSupplierBillStatus"><option value="paid">Paid</option><option value="due">Due</option></select><div id="ieSupplierBillInfo" style="font-size:11px;margin-top:3px;min-height:16px;"></div></div>
+    </div>
+    <div class="form-row cols-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+      <div class="form-group"><label>Transport Provider</label><input id="ieTransportProvider" placeholder="e.g. Blue Dart" onkeydown="if(event.key==='Enter')document.getElementById('ieTransportCost').focus()"></div>
+      <div class="form-group"><label>Transport Cost (₹)</label><input id="ieTransportCost" type="number" placeholder="0" min="0" step="0.01" oninput="updateTransportBillStatus()" onkeydown="if(event.key==='Enter')document.getElementById('ieTransportPaid').focus()"></div>
+      <div class="form-group"><label>Transport Paid (₹)</label><input id="ieTransportPaid" type="number" placeholder="0" min="0" step="0.01" oninput="updateTransportBillStatus()" onkeydown="if(event.key==='Enter')document.getElementById('ieTransportStatus').focus()"></div>
+      <div class="form-group"><label>Transport Status</label><select id="ieTransportStatus"><option value="paid">Paid</option><option value="due">Due</option></select><div id="ieTransportBillInfo" style="font-size:11px;margin-top:3px;min-height:16px;"></div></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Notes (optional)</label><input id="ieNotes" placeholder="e.g. Monthly restocking"></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:12px;font-weight:600;">Items Received</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost btn-sm" onclick="addInvEntryRow()">+ Existing Product</button>
+          <button class="btn btn-success btn-sm" onclick="addNewProductInEntry()">✨ Add New Product</button>
+          <button class="btn btn-sm" style="background:var(--accent2);color:#fff;" onclick="uploadInvEntryExcel()">📥 Upload Excel</button>
+        </div>
+      </div>
+      <div id="invEntryRows"></div>
+    </div>
+    <div class="info-box">💡 Stock counts will be updated immediately after saving this entry.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('invEntryModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInvEntry()">✓ Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quick New Product (inside Stock Entry) -->
+<div class="modal-bg" id="quickProductModal" style="z-index:1100;">
+  <div class="modal" style="width:540px;">
+    <div class="modal-title">✨ Quick Add Product</div>
+    <div class="info-box">This product will be added to inventory and included in this stock entry.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <div class="form-group">
+          <label>Product Image <span style="color:var(--muted);font-size:11px;">(optional)</span></label>
+          <div class="product-img-upload-wrap" id="qpImgWrap">
+            <div class="product-img-preview" id="qpImgPreview">
+              <span id="qpImgPreviewEmoji">📦</span>
+              <img id="qpImgPreviewImg" src="" alt="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:6px;">
+            </div>
+            <div class="product-img-controls">
+              <label class="btn btn-ghost btn-sm" for="qpImageFile" style="cursor:pointer;display:flex;align-items:center;gap:6px;">📷 Upload Image</label>
+              <input type="file" id="qpImageFile" accept="image/*" style="display:none;" onchange="handleQpImageUpload(this)">
+              <button class="btn btn-ghost btn-sm" onclick="clearQpImage()" id="qpImgClearBtn" style="display:none;margin-top:6px;font-size:11px;color:var(--red);">✕ Remove Image</button>
+              <span style="font-size:10px;color:var(--muted);margin-top:4px;">JPG, PNG, WEBP</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>Description <span style="color:var(--muted);font-size:11px;">(optional)</span></label>
+          <input id="qpDescription" placeholder="e.g. 500g pack, brand, shelf life…" onkeydown="if(event.key==='Enter')saveQuickProduct();">
+        </div>
+      </div>
+      <div>
+        <div class="form-group"><label>Product Name *</label><input id="qpName" placeholder="e.g. Amul Butter" onkeydown="qpTab(event,'qpName')"></div>
+        <div class="form-group">
+          <label>Category *</label>
+          <div class="combo-wrap" id="qpCatWrap">
+            <input id="qpCatText" class="combo-input" placeholder="Type or select..." autocomplete="off"
+              oninput="comboInput('qpCatWrap','qpCatList',getQpCatItems,'qpCategory',null)"
+              onkeydown="comboKey(event,'qpCatWrap','qpCatList','qpCategory',null);if((event.key==='Enter'||event.key==='Tab')&&!document.getElementById('qpCatWrap').classList.contains('open')){event.preventDefault();document.getElementById('qpPrice').focus();}"
+              onfocus="comboInput('qpCatWrap','qpCatList',getQpCatItems,'qpCategory',null)">
+            <input type="hidden" id="qpCategory">
+            <div class="combo-list" id="qpCatList"></div>
+          </div>
+        </div>
+        <div class="form-group"><label>Selling Price (₹) *</label><input id="qpPrice" type="number" placeholder="0.00" min="0" step="0.01" onkeydown="qpTab(event,'qpPrice')"></div>
+        <div class="form-group"><label>SKU <span style="color:var(--muted);font-size:11px;">(optional)</span></label><input id="qpSKU" placeholder="e.g. AMUL-001" onkeydown="qpTab(event,'qpSKU')"></div>
+        <div style="display:flex;gap:8px;">
+          <div class="form-group" style="flex:1;"><label>CGST %</label><input id="qpCGST" type="number" placeholder="0" min="0" max="100" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:13px;" onkeydown="qpTab(event,'qpCGST')"></div>
+          <div class="form-group" style="flex:1;"><label>SGST %</label><input id="qpSGST" type="number" placeholder="0" min="0" max="100" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:13px;" onkeydown="qpTab(event,'qpSGST')"></div>
+          <div class="form-group" style="flex:1;"><label>IGST %</label><input id="qpIGST" type="number" placeholder="0" min="0" max="100" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:13px;" onkeydown="qpTab(event,'qpIGST')"></div>
+        </div>
+        <div class="form-group"><label>Pieces Per Box</label><input id="qpPPB" type="number" placeholder="e.g. 45" min="1" onkeydown="qpTab(event,'qpPPB')"></div>
+      </div>
+    </div>
+    <input type="hidden" id="qpEmoji" value="📦">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('quickProductModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveQuickProduct()">✓ Add & Include in Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- Advance Order Modal -->
+<div class="modal-bg" id="advanceModal">
+  <div class="modal" style="width:580px;">
+    <div class="modal-title">📋 New Advance Order</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Customer Name *</label>
+        <div class="combo-wrap" id="advCustWrap">
+          <input id="advCustName" class="combo-input" placeholder="Customer name..." autocomplete="off"
+            oninput="comboInput('advCustWrap','advCustList',getCustNameItems,null,selectAdvCust)"
+            onkeydown="comboKey(event,'advCustWrap','advCustList',null,selectAdvCust)"
+            onfocus="comboInput('advCustWrap','advCustList',getCustNameItems,null,selectAdvCust)">
+          <div class="combo-list" id="advCustList"></div>
+        </div>
+      </div>
+      <div class="form-group"><label>Phone Number</label><input id="advPhone" type="tel" placeholder="9876543210" oninput="advPhoneInput()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Packing Date</label>
+        <input id="advPackDate" type="text" data-calendar readonly placeholder="Select date..." style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color:var(--text);cursor:pointer;"></div>
+      <div class="form-group"><label>Packing Time</label>
+        <input id="advPackTime" type="time" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface1);color-scheme:dark;">
+        <div style="font-size:11px;color:var(--accent2);margin-top:4px;">⏰ Reminder: Set pickup/packing time in the future</div></div>
+      <div class="form-group"><label>Advance Paid (₹)</label><input id="advPaid" type="number" min="0" step="0.01" placeholder="0.00"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><input id="advNotes" placeholder="Any special instructions..."></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:12px;font-weight:600;">Order Items</span>
+        <button class="btn btn-ghost btn-sm" onclick="addAdvRow()">+ Add Item</button>
+      </div>
+      <div id="advRows"></div>
+      <div id="advTotal" style="font-size:13px;color:var(--accent);font-weight:600;margin-top:10px;text-align:right;"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('advanceModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAdvanceOrder()">✓ Save Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- Advance Bill Modal -->
+<div class="modal-bg" id="advBillModal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">💰 Finalize Advance Order</div>
+    <div id="advBillContent"></div>
+    <div id="advBillPaymentWrap" class="form-group" style="margin-bottom:14px;">
+      <label>Additional Payment Now (₹)</label>
+      <input id="advBillPayment" type="number" min="0" step="0.01" placeholder="0.00" oninput="updateAdvBillPreview()">
+    </div>
+    <div id="advBillPreview" style="font-size:12px;color:var(--muted);margin-bottom:14px;"></div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>Payment Method</label>
+      <select id="advBillMethod"><option>Cash</option><option>UPI</option><option>Card</option></select>
+    </div>
+    <input type="hidden" id="advBillOrderId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('advBillModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="finalizeAdvOrder()">✓ Bill & Complete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Udhaar Detail Modal -->
+<div class="modal-bg" id="udhaarDetailModal">
+  <div class="modal" style="width:520px;">
+    <div class="modal-title" id="udDetailTitle">Customer Details</div>
+    <div id="udDetailContent"></div>
+    <div class="modal-section">Record Payment</div>
+    <div class="form-row" style="margin-bottom:8px;">
+      <div class="form-group"><label>Amount Received (₹)</label><input id="udPayAmt" type="number" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="form-group"><label>Note (optional)</label><input id="udPayNote" placeholder="e.g. UPI, Cash, cheque"></div>
+    </div>
+    <input type="hidden" id="udDetailId">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('udhaarDetailModal')">Close</button>
+      <button class="btn btn-success" onclick="recordUdPayment()">💰 Record Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom Confirm Delete Modal -->
+<div class="modal-bg" id="confirmDeleteModal">
+  <div class="modal" style="width:420px;">
+    <div class="modal-title" id="confirmDeleteTitle">🗑️ Confirm Delete</div>
+    <div id="confirmDeleteMsg" style="font-size:14px;color:var(--text);margin-bottom:20px;line-height:1.6;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('confirmDeleteModal')">Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" style="padding:9px 22px;">Yes, Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Udhaar Reminder Settings Modal -->
+<div class="modal-bg" id="udhaarReminderModal">
+  <div class="modal" style="width:520px;max-height:85vh;overflow-y:auto;">
+    <div class="modal-title">⏰ Udhaar Reminder Settings</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Choose when to get reminded about pending udhaar payments. Reminders will appear as notifications.</p>
+
+    <div class="modal-section">⏱ Interval Reminders (after bill date)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;" id="reminderOptions">
+      <!-- Rendered by JS -->
+    </div>
+    <div class="modal-section">Custom Interval</div>
+    <div class="form-row" style="margin-bottom:14px;">
+      <div class="form-group" style="flex:1;">
+        <label>Value</label>
+        <input id="customReminderVal" type="number" min="1" placeholder="e.g. 90">
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>Unit</label>
+        <select id="customReminderUnit" style="width:100%;">
+          <option value="minutes">Minutes</option>
+          <option value="hours">Hours</option>
+          <option value="days" selected>Days</option>
+        </select>
+      </div>
+      <div class="form-group" style="justify-content:flex-end;padding-top:22px;">
+        <button class="btn btn-ghost btn-sm" onclick="addCustomReminder()">+ Add</button>
+      </div>
+    </div>
+    <div id="activeRemindersWrap" style="margin-bottom:16px;"></div>
+
+    <div class="modal-section">📅 Fixed Date Reminder</div>
+    <div class="form-row" style="margin-bottom:8px;">
+      <div class="form-group" style="flex:1;">
+        <label>Customer Name</label>
+        <div class="combo-wrap" id="fixRemCustWrap">
+          <input id="fixRemCustText" class="combo-input" placeholder="Type customer name..." autocomplete="off"
+            oninput="comboInput('fixRemCustWrap','fixRemCustList',getFixRemCustItems,null,null)"
+            onblur="setTimeout(()=>{document.getElementById('fixRemCustList').style.display='none';},200)">
+          <div class="combo-list" id="fixRemCustList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:8px;">
+      <div class="form-group" style="flex:1;">
+        <label>Date & Time</label>
+        <div style="display:flex;gap:8px;align-items:center;width:100%;">
+          <input id="fixRemDate" type="text" data-calendar readonly placeholder="Select date..." style="flex:1;min-width:0;padding:10px 14px;border:1px solid var(--border);border-radius:6px;font-size:15px;background:var(--surface1);color:var(--text);cursor:pointer;">
+          <input id="fixRemTime" type="time" style="flex:1;min-width:0;padding:10px 14px;border:1px solid var(--border);border-radius:6px;font-size:15px;background:var(--surface1);color-scheme:dark;">
+        </div>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>Note (optional)</label>
+        <input id="fixRemNote" placeholder="e.g. Call customer" style="width:100%;">
+      </div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <button class="btn btn-ghost btn-sm" onclick="addFixedReminder()">+ Add Fixed Reminder</button>
+    </div>
+    <div id="fixedRemindersWrap" style="margin-bottom:16px;"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('udhaarReminderModal')">Close</button>
+      <button class="btn btn-primary" onclick="saveReminderSettings()">✓ Save & Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Product Detail Modal (Reports) -->
+<div class="modal-bg" id="prodDetailModal">
+  <div class="modal" style="width:500px;max-height:85vh;overflow-y:auto;">
+    <div class="modal-title" id="prodDetailTitle">Product Sales Detail</div>
+    <div id="prodDetailContent"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('prodDetailModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reminder Popup Modal -->
+<div class="modal-bg" id="reminderPopupModal">
+  <div class="modal" style="width:440px;">
+    <div style="font-size:42px;text-align:center;margin-bottom:8px;" id="reminderPopupIcon">⏰</div>
+    <div class="modal-title" style="font-size:18px;text-align:center;" id="reminderPopupTitle">Reminder</div>
+    <div id="reminderPopupBody" style="text-align:center;font-size:14px;color:var(--muted);margin:12px 0 20px;line-height:1.6;"></div>
+    <div id="reminderPopupActions" class="modal-actions" style="justify-content:center;">
+      <button class="btn btn-ghost" onclick="closeReminderPopup()" style="min-width:100px;">Dismiss</button>
+      <button class="btn btn-primary" id="reminderSnoozeBtn" onclick="snoozeReminder()" style="min-width:120px;">🔔 Remind in 5 min</button>
+    </div>
+  </div>
+</div>
+
+<!-- Return to Customer Modal -->
+<div class="modal-bg" id="returnToCustomerModal">
+  <div class="modal" style="width:460px;text-align:center;">
+    <div style="font-size:48px;margin-bottom:12px;">💵</div>
+    <div class="modal-title" style="font-size:22px;margin-bottom:6px;" id="rtcTitle">Return to Customer</div>
+    <div id="rtcAmount" style="font-family:var(--font-head);font-size:42px;font-weight:800;color:var(--green);margin:10px 0;"></div>
+    <div id="rtcDetails" style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.8;"></div>
+    <div id="rtcTxnInfo" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:12px;color:var(--muted);text-align:left;"></div>
+    <button class="btn btn-primary" style="width:100%;font-size:15px;padding:14px;" onclick="closeModal('returnToCustomerModal')">✓ OK — Amount Returned</button>
+  </div>
+</div>
+
+<div class="notif" id="notif"></div>
+
+<!-- Image Lightbox -->
+<div id="imgLightbox" onclick="closeLightbox()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out;backdrop-filter:blur(6px);">
+  <img id="imgLightboxImg" src="" alt="" style="max-width:90vw;max-height:88vh;border-radius:14px;box-shadow:0 8px 60px rgba(0,0,0,0.7);object-fit:contain;">
+  <div id="imgLightboxName" style="position:fixed;bottom:32px;left:50%;transform:translateX(-50%);color:#fff;font-size:15px;font-family:var(--font-head);font-weight:600;background:rgba(0,0,0,0.55);padding:8px 22px;border-radius:30px;pointer-events:none;"></div>
+  <button onclick="closeLightbox()" style="position:fixed;top:22px;right:28px;background:rgba(255,255,255,0.12);border:none;color:#fff;font-size:22px;width:40px;height:40px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+</div>
+<!-- Customer Detail Modal -->
+<div class="modal-bg" id="customerDetailModal">
+  <div class="modal" style="width:700px;max-height:90vh;overflow-y:auto;">
+    <div class="modal-title" id="custDetailTitle">Customer Details</div>
+    <div id="custDetailContent"></div>
+  </div>
+</div>
+
+
+<script src="xlsx.full.min.js"></script>
+<script src="html2canvas.min.js"></script>
+<script src="jspdf.umd.min.js"></script>
+<script src="shopOS_app.js?v=26"></script>
+
+<!-- Calendar Overlay -->
+<div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">
+  <div class="cal-popup">
+    <div class="cal-sidebar">
+      <button class="cal-preset" data-preset="today" onclick="calPreset('today')">Today</button>
+      <button class="cal-preset" data-preset="yesterday" onclick="calPreset('yesterday')">Yesterday</button>
+      <button class="cal-preset" data-preset="week" onclick="calPreset('week')">Last week</button>
+      <button class="cal-preset" data-preset="month" onclick="calPreset('month')">Last month</button>
+      <button class="cal-preset" data-preset="year" onclick="calPreset('year')">Last year</button>
+    </div>
+    <div class="cal-main">
+      <div class="cal-header">
+        <button class="cal-nav" onclick="calNav(-1)">‹</button>
+        <span class="cal-label" id="calLabel"></span>
+        <button class="cal-nav" onclick="calNav(1)">›</button>
+      </div>
+      <div class="cal-weekdays">
+        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

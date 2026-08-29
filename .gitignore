@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Backend secrets / env
+.env
+.env.*
+backend/.env
+*.local
+
+# Editor / tool config (local only)
+.claude/
+.gemini/
+.kiro/
+.opencode/
+.vscode/
+.idea/
+*.log
+
+# Business / real data
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+backup*/
+*.bak
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temp
+tmp/
+temp/
