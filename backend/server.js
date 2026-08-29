@@ -202,10 +202,10 @@ app.post('/api/save', authMiddleware, async (req, res) => {
       await client.query('DELETE FROM advance_orders WHERE account_id=$1', [aid]);
       for (const o of advanceOrders) {
         await client.query(
-          `INSERT INTO advance_orders (id, account_id, cust_name, phone, pack_time, adv_paid, notes, items, total, status, sale_id, transport, tax_applied, transport_cost, addl_paid, bills)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-           ON CONFLICT (id,account_id) DO UPDATE SET cust_name=EXCLUDED.cust_name, phone=EXCLUDED.phone, pack_time=EXCLUDED.pack_time, adv_paid=EXCLUDED.adv_paid, notes=EXCLUDED.notes, items=EXCLUDED.items, total=EXCLUDED.total, status=EXCLUDED.status, sale_id=EXCLUDED.sale_id, transport=EXCLUDED.transport, tax_applied=EXCLUDED.tax_applied, transport_cost=EXCLUDED.transport_cost, addl_paid=EXCLUDED.addl_paid, bills=EXCLUDED.bills`,
-          [String(o.id).slice(0,50), aid, String(o.custName).slice(0,255), String(o.phone||'').slice(0,20), o.packTime||null, Math.max(0,parseFloat(o.advPaid)||0), String(o.notes||'').slice(0,1000), JSON.stringify(o.items||[]), parseFloat(o.total)||0, String(o.status||'scheduled').slice(0,50), o.saleId||null, o.transport ? JSON.stringify(o.transport) : null, !!o.taxApplied, Math.max(0,parseFloat(o.transportCost)||0), Math.max(0,parseFloat(o.addlPaid)||0), JSON.stringify(o.bills||[])]
+          `INSERT INTO advance_orders (id, account_id, cust_name, phone, pack_time, adv_paid, notes, items, total, status, sale_id, transport, tax_applied, transport_cost, addl_paid, bills, location)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+           ON CONFLICT (id,account_id) DO UPDATE SET cust_name=EXCLUDED.cust_name, phone=EXCLUDED.phone, pack_time=EXCLUDED.pack_time, adv_paid=EXCLUDED.adv_paid, notes=EXCLUDED.notes, items=EXCLUDED.items, total=EXCLUDED.total, status=EXCLUDED.status, sale_id=EXCLUDED.sale_id, transport=EXCLUDED.transport, tax_applied=EXCLUDED.tax_applied, transport_cost=EXCLUDED.transport_cost, addl_paid=EXCLUDED.addl_paid, bills=EXCLUDED.bills, location=EXCLUDED.location`,
+          [String(o.id).slice(0,50), aid, String(o.custName).slice(0,255), String(o.phone||'').slice(0,20), o.packTime||null, Math.max(0,parseFloat(o.advPaid)||0), String(o.notes||'').slice(0,1000), JSON.stringify(o.items||[]), parseFloat(o.total)||0, String(o.status||'scheduled').slice(0,50), o.saleId||null, o.transport ? JSON.stringify(o.transport) : null, !!o.taxApplied, Math.max(0,parseFloat(o.transportCost)||0), Math.max(0,parseFloat(o.addlPaid)||0), JSON.stringify(o.bills||[]), o.location ? JSON.stringify(o.location) : null]
         );
       }
     }
@@ -222,8 +222,8 @@ app.post('/api/save', authMiddleware, async (req, res) => {
       await client.query('DELETE FROM customer_ledgers WHERE account_id=$1', [aid]);
       for (const l of req.body.customerLedgers) {
         await client.query(
-          'INSERT INTO customer_ledgers (id, account_id, customer_name, phone, entries) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id,account_id) DO UPDATE SET customer_name=EXCLUDED.customer_name, phone=EXCLUDED.phone, entries=EXCLUDED.entries',
-          [l.id, aid, String(l.customerName||l.customer_name).slice(0,255), String(l.phone||'').slice(0,20), JSON.stringify(l.entries||[])]
+          'INSERT INTO customer_ledgers (id, account_id, customer_name, phone, entries, location) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id,account_id) DO UPDATE SET customer_name=EXCLUDED.customer_name, phone=EXCLUDED.phone, entries=EXCLUDED.entries, location=EXCLUDED.location',
+          [l.id, aid, String(l.customerName||l.customer_name).slice(0,255), String(l.phone||'').slice(0,20), JSON.stringify(l.entries||[]), l.location ? JSON.stringify(l.location) : null]
         );
       }
     }

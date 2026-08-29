@@ -3666,6 +3666,16 @@ function openCustomerDetail(name){
   }
   // Ledger
   const ledger = customerLedgers.find(l => l.customerName.toLowerCase() === name.toLowerCase());
+  // Shop / delivery location
+  const ledgerLoc = ledger ? (ledger.location||null) : null;
+  html += `<div class="modal-section">📍 Shop / Delivery Location</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <div style="flex:1;font-size:12px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;">
+        ${ledgerLoc ? escapeHtml(ledgerLoc.address||(''+ledgerLoc.lat+', '+ledgerLoc.lng)) : '<span style="color:var(--muted);">No location saved for this customer.</span>'}
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="setCustomerLocation('${String(name).replace(/'/g,"\\'")}')">${ledgerLoc?'✏️ Edit':'🗺️ Set'}</button>
+      ${ledgerLoc?'<button class="btn btn-ghost btn-sm" onclick="openMapFromData('+ledgerLoc.lat+','+ledgerLoc.lng+')">Open</button>':''}
+    </div>`;
   if(ledger && ledger.entries.length){
     html += `<div class="modal-section">📒 Ledger</div>
     <div style="max-height:250px;overflow-y:auto;margin-bottom:12px;">
@@ -3737,6 +3747,22 @@ function openCustomerDetail(name){
   html += `<div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('customerDetailModal')">Close</button><button class="btn btn-primary" onclick="printCustomerLedger()">🖨️ Print Ledger</button></div>`;
   document.getElementById('custDetailContent').innerHTML = html;
   document.getElementById('customerDetailModal').classList.add('open');
+}
+
+function setCustomerLocation(name){
+  const ledger = getOrCreateLedger(name, '');
+  const cur = ledger.location || null;
+  openMapPicker({
+    lat: cur ? cur.lat : null,
+    lng: cur ? cur.lng : null,
+    address: cur ? cur.address : '',
+    onConfirm: r => {
+      ledger.location = { lat: r.lat, lng: r.lng, address: r.address };
+      saveAllData();
+      notify('📍 Customer location saved','success');
+      openCustomerDetail(name);
+    }
+  });
 }
 
 function printCustomerLedger(){
@@ -4971,8 +4997,44 @@ function scrollToInvEntry(id){
 }
 
 // ── ADVANCE ORDERS ────────────────────────────────────────────────────────────
+let _advLocation = null;
+
+function openAdvLocationMap(){
+  openMapPicker({
+    lat: _advLocation ? _advLocation.lat : null,
+    lng: _advLocation ? _advLocation.lng : null,
+    address: _advLocation ? _advLocation.address : '',
+    onConfirm: r => {
+      _advLocation = { lat: r.lat, lng: r.lng, address: r.address };
+      document.getElementById('advLocationText').value = r.address;
+      document.getElementById('advLocationText').style.color='var(--text)';
+      // If a customer with a saved location is selected, offer to use it
+      const cust = document.getElementById('advCustName').value.trim();
+      if(cust){ linkSavedCustomerLoc(cust); }
+    }
+  });
+}
+
+function clearAdvLocation(){
+  _advLocation = null;
+  const el = document.getElementById('advLocationText');
+  if(el){ el.value=''; el.style.color='var(--muted)'; }
+}
+
+function linkSavedCustomerLoc(custName){
+  if(!custName || _advLocation) return;
+  const ledger = customerLedgers.find(l => l.customerName.toLowerCase() === String(custName).toLowerCase());
+  if(ledger && ledger.location && ledger.location.lat){
+    _advLocation = { lat: ledger.location.lat, lng: ledger.location.lng, address: ledger.location.address };
+    const el = document.getElementById('advLocationText');
+    if(el){ el.value = ledger.location.address; el.style.color='var(--text)'; }
+    notify('📍 Using customer saved location','success');
+  }
+}
+
 function openAdvanceOrder(){
   ['advCustName','advPhone','advNotes','advPaid'].forEach(id=>document.getElementById(id).value='');
+  clearAdvLocation();
   // Clear pack time fields
   document.getElementById('advPackTime').value='';
   const ad=document.getElementById('advPackDate');
@@ -5040,7 +5102,7 @@ function saveAdvanceOrder(){
     if(p&&qty>0){ items.push({productId:p.id,productName:p.name,emoji:p.emoji,price:p.price,qty}); total+=p.price*qty; }
   }
   if(!items.length){ notify('Add at least one item','error'); return; }
-  const order={id:'ADV-'+String(nextAdvId++).padStart(4,'0'),custName,phone,packTime:_localDateStr(packTimeDate),advPaid,notes,items,total,status:'scheduled',saleId:null,addlPaid:0};
+  const order={id:'ADV-'+String(nextAdvId++).padStart(4,'0'),custName,phone,packTime:_localDateStr(packTimeDate),advPaid,notes,location:_advLocation||null,items,total,status:'scheduled',saleId:null,addlPaid:0};
   advanceOrders.push(order);
   scheduleAdvanceReminders(order);
   closeModal('advanceModal'); renderAdvanceOrders(); saveAllData(); notify(`Advance order saved for ${custName}`);
@@ -5128,6 +5190,7 @@ function renderAdvanceOrders(){
         <span>Balance: <strong style="color:${pending>0?'var(--red)':'var(--green)'};">₹${fmt(pending)}</strong></span>
       </div>`:payBreakdown}
       ${o.notes?`<div style="font-size:11px;color:var(--muted);">📝 ${o.notes}</div>`:''}
+      ${o.location?`<div style="margin-top:6px;font-size:11px;color:var(--accent2);display:flex;align-items:center;gap:6px;">📍 ${escapeHtml(o.location.address||(''+o.location.lat+', '+o.location.lng))} <button class="btn btn-ghost btn-sm" style="padding:1px 8px;font-size:10px;" onclick="openMapFromData(${o.location.lat},${o.location.lng})">Open Map</button></div>`:''}
       ${o.transport?`<div style="margin-top:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--muted);">
         🚚 <strong style="color:var(--accent2);">Transport</strong>: ${o.transport.location||''}
         ${o.transport.recipient?` · 👤 ${o.transport.recipient}`:''}
@@ -6626,6 +6689,7 @@ function mapAdvance(o){
   return { id:o.id, custName:o.cust_name, phone:o.phone||'', packTime:o.pack_time,
     advPaid:Number(o.adv_paid||0), notes:o.notes||'', items:o.items||[], total:Number(o.total),
     status:o.status||'scheduled', saleId:o.sale_id, transport:o.transport,
+    location:o.location||null,
     taxApplied:o.tax_applied||false, transportCost:Number(o.transport_cost||0),
     addlPaid:Number(o.addl_paid||0), bills:o.bills||[] };
 }
@@ -6656,7 +6720,7 @@ async function loadAllData(){
     if(data.notes) notes = data.notes;
     if(data.customerLedgers) customerLedgers = data.customerLedgers.map(l => ({
       id:l.id, customerName:l.customer_name||l.customerName, phone:l.phone||'',
-      entries:l.entries||[]
+      location:l.location||null, entries:l.entries||[]
     }));
     if(data.purchasePriceLog) purchasePriceLog = data.purchasePriceLog;
     if(data.supplierTransportLog) supplierTransportLog = data.supplierTransportLog;
@@ -7837,4 +7901,147 @@ function calPreset(name) {
   else if (name === 'month') date.setMonth(date.getMonth() - 1);
   else if (name === 'year') date.setFullYear(date.getFullYear() - 1);
   calPick(date);
+}
+
+
+
+// -- MAP PICKER (OpenStreetMap + Leaflet, 100% free, no API key) -------------
+let _mapPickerMap = null;
+let _mapPickerMarker = null;
+let _mapPickerCb = null;
+let _mapPickerInitLat = 20.5937;
+let _mapPickerInitLng = 78.9629;
+
+function openMapPicker(opts){
+  opts = opts || {};
+  _mapPickerCb = opts.onConfirm || null;
+  const lat = (opts.lat != null) ? opts.lat : _mapPickerInitLat;
+  const lng = (opts.lng != null) ? opts.lng : _mapPickerInitLng;
+  if(window.L && L.Icon && L.Icon.Default){
+    L.Icon.Default.mergeOptions({
+      iconUrl: 'marker-icon.png',
+      iconRetinaUrl: 'marker-icon-2x.png',
+      shadowUrl: 'marker-shadow.png'
+    });
+  }
+  const addrEl = document.getElementById('mapPickedAddress');
+  const latEl  = document.getElementById('mapPickedLat');
+  const lngEl  = document.getElementById('mapPickedLng');
+  if(latEl) latEl.value = lat;
+  if(lngEl) lngEl.value = lng;
+  if(addrEl) addrEl.innerHTML = opts.address ? `<span style="color:var(--accent);font-weight:600;">??</span> ${escapeHtml(opts.address)}` : '<span style="color:var(--muted);">Select a location...</span>';
+  document.getElementById('mapPickerModal').classList.add('open');
+  if(!_mapPickerMap){
+    _mapPickerMap = L.map('mapPickerDiv').setView([lat, lng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(_mapPickerMap);
+    _mapPickerMap.on('click', e => {
+      setMapPick(e.latlng.lat, e.latlng.lng);
+    });
+    setTimeout(() => _mapPickerMap.invalidateSize(), 150);
+  } else {
+    _mapPickerMap.setView([lat, lng], 13);
+    setTimeout(() => _mapPickerMap.invalidateSize(), 150);
+  }
+  setMapPick(lat, lng, opts.address || '');
+}
+
+function setMapPick(lat, lng, addrLabel){
+  const latEl = document.getElementById('mapPickedLat');
+  const lngEl = document.getElementById('mapPickedLng');
+  const addrEl = document.getElementById('mapPickedAddress');
+  if(latEl) latEl.value = lat;
+  if(lngEl) lngEl.value = lng;
+  if(_mapPickerMap){
+    if(_mapPickerMarker) _mapPickerMap.removeLayer(_mapPickerMarker);
+    _mapPickerMarker = L.marker([lat, lng]).addTo(_mapPickerMap);
+  }
+  if(!addrLabel){
+    loadMapAddress(lat, lng);
+  } else if(addrEl){
+    addrEl.innerHTML = `<span style="color:var(--accent);font-weight:600;">??</span> ${addrLabel}`;
+  }
+}
+
+function loadMapAddress(lat, lng){
+  const addrEl = document.getElementById('mapPickedAddress');
+  if(addrEl) addrEl.innerHTML = '<span class="muted-span" style="color:var(--muted);">Fetching address...</span>';
+  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&accept-language=en`)
+    .then(r => r.json())
+    .then(d => {
+      const disp = (d && d.display_name) ? d.display_name : `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}`;
+      if(addrEl) addrEl.innerHTML = `<span style="color:var(--accent);font-weight:600;">??</span> ${escapeHtml(disp)}`;
+    })
+    .catch(() => {
+      if(addrEl) addrEl.innerHTML = `<span style="color:var(--muted);">${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}</span>`;
+    });
+}
+
+function searchMapPlace(){
+  const q = document.getElementById('mapSearchInput').value.trim();
+  const list = document.getElementById('mapSearchList');
+  if(!q){ list.style.display='none'; return; }
+  fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&limit=6&accept-language=en`)
+    .then(r => r.json())
+    .then(d => {
+      if(!d || !d.length){ list.innerHTML='<div style="padding:8px 12px;color:var(--muted);font-size:12px;">No places found</div>'; list.style.display='block'; return; }
+      list.innerHTML = d.map((p,i)=>`<div class="map-search-item" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border);" onmousedown="event.preventDefault();pickMapSearch(${i})">${escapeHtml(p.display_name)}</div>`).join('');
+      list._results = d;
+      list.style.display='block';
+    })
+    .catch(()=>{ list.style.display='none'; });
+}
+
+function pickMapSearch(idx){
+  const list = document.getElementById('mapSearchList');
+  const res = (list._results||[])[idx];
+  list.style.display='none';
+  if(!res) return;
+  const lat = parseFloat(res.lat), lng = parseFloat(res.lon);
+  if(_mapPickerMap) _mapPickerMap.setView([lat, lng], 17);
+  setMapPick(lat, lng, res.display_name);
+}
+
+function useMyLocation(){
+  if(!navigator.geolocation){ notify('Geolocation not supported','error'); return; }
+  notify('Detecting your location...');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      if(_mapPickerMap) _mapPickerMap.setView([lat, lng], 17);
+      setMapPick(lat, lng);
+    },
+    err => { notify('Could not get location: '+ (err.message||'denied'),'error'); }
+  );
+}
+
+function confirmMapPick(){
+  const lat = document.getElementById('mapPickedLat').value;
+  const lng = document.getElementById('mapPickedLng').value;
+  const addr = document.getElementById('mapPickedAddress').innerText.trim();
+  const result = { lat: parseFloat(lat), lng: parseFloat(lng), address: addr };
+  closeMapPicker();
+  if(_mapPickerCb) _mapPickerCb(result);
+}
+
+function closeMapPicker(){
+  document.getElementById('mapPickerModal').classList.remove('open');
+  const list = document.getElementById('mapSearchList');
+  if(list) list.style.display='none';
+}
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function openMapFromData(lat, lng){
+  if(!lat || !lng) return;
+  window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`, '_blank');
+}
+
+function locBtnLabel(loc){
+  if(!loc) return '?? Add Location';
+  return loc.address ? '?? '+loc.address : '?? '+parseFloat(loc.lat).toFixed(5)+', '+parseFloat(loc.lng).toFixed(5);
 }

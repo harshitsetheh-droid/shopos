@@ -204,6 +204,8 @@ async function initDB() {
     await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS location VARCHAR(255) DEFAULT ''`);
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS actual_total DECIMAL(10,2)`);
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE advance_orders ADD COLUMN IF NOT EXISTS location JSONB`);
+    await client.query(`ALTER TABLE customer_ledgers ADD COLUMN IF NOT EXISTS location JSONB`);
 
     // GST split migration
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS cgst DECIMAL(5,2) DEFAULT 0`);

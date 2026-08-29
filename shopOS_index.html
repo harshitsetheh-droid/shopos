@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShopOS — Retail Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="shopOS_style.css?v=14">
+  <link rel="stylesheet" href="leaflet.css?v=1">
+  <link rel="stylesheet" href="shopOS_style.css?v=15">
 </head>
 <body>
 
@@ -1066,6 +1067,15 @@
       <div class="form-group"><label>Advance Paid (₹)</label><input id="advPaid" type="number" min="0" step="0.01" placeholder="0.00"></div>
     </div>
     <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><input id="advNotes" placeholder="Any special instructions..."></div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>📍 Delivery / Shop Location</label>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="advLocationText" readonly placeholder="No location set — tap map to pick" style="flex:1;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;cursor:pointer;" onclick="openAdvLocationMap()">
+        <button class="btn btn-ghost btn-sm" onclick="openAdvLocationMap()" style="flex-shrink:0;">🗺️ Map</button>
+        <button class="btn btn-danger btn-sm" onclick="clearAdvLocation()" style="flex-shrink:0;" title="Clear location">✕</button>
+      </div>
+      <div style="font-size:11px;color:var(--accent2);margin-top:4px;">Pick delivery address on map. You can also link a customer's saved shop location.</div>
+    </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <span style="font-size:12px;font-weight:600;">Order Items</span>
@@ -1252,11 +1262,38 @@
   </div>
 </div>
 
+<!-- Map Picker Modal -->
+<div class="modal-bg" id="mapPickerModal" onclick="if(event.target===this)closeMapPicker()">
+  <div class="modal" style="width:760px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="modal-title">📍 Set Location on Map <span style="font-size:11px;color:var(--muted);font-weight:400;">(click map to drop pin, or search)</span></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <div style="flex:1;position:relative;">
+        <input id="mapSearchInput" placeholder="Search place / area / address..." autocomplete="off"
+          style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box;"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();searchMapPlace();}">
+        <div id="mapSearchList" style="position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;z-index:1200;max-height:200px;overflow-y:auto;display:none;"></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="useMyLocation()" style="flex-shrink:0;">📍 My Location</button>
+    </div>
+    <div id="mapPickerDiv" style="flex:1;min-height:320px;border-radius:10px;border:1px solid var(--border);z-index:1;"></div>
+    <div style="margin-top:10px;">
+      <div id="mapPickedAddress" style="font-size:12px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;min-height:18px;"></div>
+      <input type="hidden" id="mapPickedLat">
+      <input type="hidden" id="mapPickedLng">
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
+      <button class="btn btn-ghost" onclick="closeMapPicker()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmMapPick()">✅ Save Location</button>
+    </div>
+  </div>
+</div>
+
 
 <script src="xlsx.full.min.js"></script>
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
-<script src="shopOS_app.js?v=26"></script>
+<script src="leaflet.js?v=1"></script>
+<script src="shopOS_app.js?v=27"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">
