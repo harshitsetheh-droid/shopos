@@ -3580,17 +3580,17 @@ function renderUdhaar(){
           <div>
             <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:16px;color:var(--red);font-weight:800;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:15px;color:var(--accent2);font-weight:800;">🕐 ${lastTxnDate}</span>`:''}</div>
             ${rec.phone?`<div class="ud-card-phone"><span style="cursor:pointer;" title="Click to copy phone" onclick="event.stopPropagation();copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">📞 ${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;margin-left:4px;" title="WhatsApp ${rec.phone}" onclick="event.stopPropagation();waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲</button></div>`:''}
-            ${rec.reference?`<div style="font-size:11px;color:var(--accent2);margin-top:2px;">🏷️ ${rec.reference}</div>`:''}
-            ${hasCredit?`<div style="font-size:10px;color:var(--accent2);margin-top:3px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
+            ${rec.reference?`<div style="font-size:13px;color:var(--accent2);margin-top:8px;">🏷️ ${rec.reference}</div>`:''}
+            ${hasCredit?`<div style="font-size:12px;color:var(--accent2);margin-top:8px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
           </div>
           <div style="margin-left:auto;text-align:right;">
             <div class="ud-pending" style="color:${hasCredit?'var(--accent2)':rec.totalPending<=0?'var(--green)':'var(--red)'};">${hasCredit?`₹${fmt(rec.credit)}`:`₹${fmt(rec.totalPending)}`}</div>
             <div class="ud-sub-info">${hasCredit?'Credit available':`of ₹${fmt(rec.totalBill)}`}</div>
           </div>
         </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${rec.totalPending<=0?'var(--green)':'var(--red)'};"></div></div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px;">
-          <span style="font-size:13px;font-weight:600;">Paid: ₹${fmt(rec.totalPaid)}</span>
+        <div class="progress-bar" style="margin-top:4px;"><div class="progress-fill" style="width:${pct}%;background:${rec.totalPending<=0?'var(--green)':'var(--red)'};"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:12px;">
+          <span style="font-size:14px;font-weight:700;">Paid: ₹${fmt(rec.totalPaid)}</span>
           <span>${rec.bills.length} bill${rec.bills.length!==1?'s':''}</span>
           <span>${hasCredit?'💰 Credit':rec.totalPending<=0?'✅ Cleared':'⏳ Pending'}</span>
         </div>

@@ -487,14 +487,14 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
 .cat-toolbar .cat-search{flex:1;margin-bottom:0;}
 
 /* ── UDHAAR CARDS ── */
-.ud-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;cursor:pointer;transition:all .2s;}
+.ud-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 22px;margin-bottom:14px;cursor:pointer;transition:all .2s;}
 .ud-card:hover{border-color:var(--red);transform:translateY(-1px);box-shadow:0 6px 20px var(--shadow);}
-.ud-card-header{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;}
-.ud-card-name{font-family:var(--font-head);font-size:16px;font-weight:700;}
-.ud-card-phone{font-size:14px;color:var(--muted);}
+.ud-card-header{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap;}
+.ud-card-name{font-family:var(--font-head);font-size:18px;font-weight:700;line-height:1.4;}
+.ud-card-phone{font-size:14px;color:var(--muted);margin-top:5px;}
 .ud-card-ref{font-size:13px;color:var(--accent2);background:rgba(64,200,240,.08);border:1px solid rgba(64,200,240,.2);border-radius:12px;padding:2px 10px;}
-.ud-pending{font-family:var(--font-head);font-size:24px;font-weight:800;color:var(--red);}
-.ud-sub-info{font-size:13px;color:var(--muted);margin-top:2px;}
+.ud-pending{font-family:var(--font-head);font-size:28px;font-weight:800;color:var(--red);}
+.ud-sub-info{font-size:13px;color:var(--muted);margin-top:4px;}
 
 /* ── ADVANCE CARDS ── */
 .adv-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:12px;transition:all .2s;}
