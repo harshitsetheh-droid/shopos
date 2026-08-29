@@ -234,7 +234,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-si
 /* ── SIDEBAR ── */
 .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px 0;transition:background .3s,border .3s;overflow-y:auto;height:100%;}
 .nav-item{
-  display:flex;align-items:center;gap:16px;padding:18px 22px;
+  display:flex;align-items:center;gap:16px;padding:12px 22px;
   cursor:pointer;transition:all .2s;font-size:15px;font-weight:600;
   color:var(--muted);border-left:3px solid transparent;
   margin:3px 0;
