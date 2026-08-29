@@ -234,15 +234,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-si
 /* ── SIDEBAR ── */
 .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:20px 0;transition:background .3s,border .3s;overflow-y:auto;height:100%;}
 .nav-item{
-  display:flex;align-items:center;gap:14px;padding:15px 20px;
+  display:flex;align-items:center;gap:16px;padding:18px 22px;
   cursor:pointer;transition:all .2s;font-size:15px;font-weight:600;
   color:var(--muted);border-left:3px solid transparent;
-  margin:2px 0;
+  margin:3px 0;
 }
 .nav-item:hover{color:var(--text);background:var(--surface2);}
 .nav-item.active{color:var(--accent);border-left-color:var(--accent);background:rgba(240,192,64,.07);}
-.nav-item .icon{font-size:19px;width:24px;text-align:center;flex-shrink:0;}
-.nav-section{font-size:13px;font-weight:700;color:var(--muted);padding:22px 20px 8px;letter-spacing:2px;text-transform:uppercase;}
+.nav-item .icon{font-size:20px;width:26px;text-align:center;flex-shrink:0;}
+.nav-section{font-size:13px;font-weight:700;color:var(--muted);padding:26px 22px 10px;letter-spacing:2px;text-transform:uppercase;}
 .main{padding:28px;overflow-y:auto;height:100%;}
 
 /* ── THEME TOGGLE ── */
