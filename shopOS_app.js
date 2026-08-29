@@ -267,6 +267,20 @@ async function doLogin(){
 /* ── Unlock app ── */
 let _userLocation = '';
 let bellPanelOpen = false;
+let _bellDismissed = {};
+
+function shortLocLabel(loc){
+  if(!loc) return '';
+  const parts = String(loc).split(',').map(s=>s.trim()).filter(Boolean);
+  if(parts.length<=2) return parts.join(', ');
+  // Drop trailing "India" / country part, keep last 2 meaningful location parts
+  const last = parts[parts.length-1];
+  const dropCountry = /india/i.test(last);
+  const keep = dropCountry ? parts.slice(-3) : parts.slice(-2);
+  let label = keep.join(', ');
+  if(label.length>38) label = parts.slice(-1)[0];
+  return label;
+}
 
 function unlockApp(displayName, location){
   _userLocation = location || '';
@@ -282,7 +296,7 @@ function unlockApp(displayName, location){
   // Show shop location in nav if present
   const navWrap=document.getElementById('navLocWrap');
   const navLabel=document.getElementById('navLocLabel');
-  if(_userLocation && navWrap && navLabel){ navLabel.textContent=_userLocation; navWrap.style.display='inline-flex'; }
+  if(_userLocation && navWrap && navLabel){ navLabel.textContent=shortLocLabel(_userLocation); navWrap.style.display='inline-flex'; }
   // Show bell
   const bellWrap=document.getElementById('bellWrap');
   if(bellWrap) bellWrap.style.display='inline-flex';
@@ -2319,7 +2333,7 @@ function changeNavLocation(){
     onConfirm:(loc)=>{
       _userLocation = loc.address || (loc.lat.toFixed(5)+', '+loc.lng.toFixed(5));
       const lbl=document.getElementById('navLocLabel');
-      if(lbl) lbl.textContent=_userLocation;
+      if(lbl) lbl.textContent=shortLocLabel(_userLocation);
       const navWrap=document.getElementById('navLocWrap');
       if(navWrap) navWrap.style.display='inline-flex';
       const inp=document.getElementById('cartCustLocation');
@@ -2333,12 +2347,18 @@ function changeNavLocation(){
 function getBellItems(){
   const items=[];
   const now=new Date().getTime();
-  // Udhaar pending > 0
+  const dismissed = (_bellDismissed||{});
+  const isDismissed = (type,id)=> dismissed[type+':'+id];
+  // Udhaar — only show when a reminder is set AND its trigger time has passed
   udhaarRecords.filter(r=>r.totalPending>0).forEach(r=>{
-    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:'Pending ₹'+fmt(r.totalPending), page:'udhaar', id:r.id, priority: 2 });
+    if(isDismissed('udhaar',r.id)) return;
+    const due = udhaarNotificationDue(r);
+    if(!due) return;
+    items.push({ type:'udhaar', name:r.name, phone:r.phone||'', sub:due.label, page:'udhaar', id:r.id, priority: 2 });
   });
   // Advance orders due (scheduled/ready, not billed)
   advanceOrders.filter(o=>o.status!=='billed').forEach(o=>{
+    if(isDismissed('advance',o.id)) return;
     let prio=1, sub='';
     const packTime=new Date(o.packTime);
     const totalPaid=(o.advPaid||0)+(o.addlPaid||0);
@@ -2349,6 +2369,29 @@ function getBellItems(){
   });
   items.sort((a,b)=>b.priority-a.priority);
   return items;
+}
+
+// Returns {label} if an udhaar reminder is set AND its trigger time has passed, else null
+function udhaarNotificationDue(rec){
+  // 1) Fixed date reminder for this customer, fired=false, time reached
+  if(_udhaarFixedReminders.length){
+    const fr=_udhaarFixedReminders.find(r =>
+      !r.fired && (r.custName||'').toLowerCase()===rec.name.toLowerCase() && new Date(r.date)<=new Date());
+    if(fr) return { label:'⏰ Reminder· '+fr.note||'Due reminder' };
+  }
+  // 2) Interval reminders: bill age from oldest pending bill reached any set interval
+  if(_udhaarReminderIntervals.length && rec.totalPending>0){
+    const oldestBill=rec.bills.find(b=>b.pending>0);
+    if(oldestBill){
+      const ageMin=Math.floor((Date.now()-new Date(oldestBill.date).getTime())/(1000*60));
+      const matched = _udhaarReminderIntervals.filter(m=>ageMin>=m);
+      if(matched.length){
+        const display = Math.min(...matched)<1440 ? fmtInterval(Math.min(...matched)) : Math.floor(Math.min(...matched)/1440)+'d';
+        return { label:'⏰ Pending ₹'+fmt(rec.totalPending)+' · '+display+' reminder due' };
+      }
+    }
+  }
+  return null;
 }
 
 function updateReminderCount(){
@@ -2378,7 +2421,10 @@ function renderBellPanel(){
     return;
   }
   panel.innerHTML=`
-    <div style="padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;">Reminders (${items.length})</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;">
+      <span>Reminders (${items.length})</span>
+      <button class="btn btn-ghost btn-sm" style="padding:2px 10px;font-size:11px;" onclick="clearAllBell()">🗑️ Clear All</button>
+    </div>
     ${items.map((it,idx)=>`
       <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid ${it.priority>=3?'var(--red)':it.priority===2?'var(--accent2)':'transparent'};background:${idx%2?'transparent':'var(--surface2)'};" onclick="closeBellPanel();navigateToBellItem('${it.type}','${String(it.id).replace(/'/g,"\\'")}');" title="Open">
         <span style="font-size:15px;">${it.type==='udhaar'?'💸':'📋'}</span>
@@ -2387,16 +2433,34 @@ function renderBellPanel(){
           <div style="font-size:11px;color:var(--muted);${it.priority>=3?'color:var(--red);font-weight:700;':''}">${it.sub}</div>
         </div>
         <button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:10px;" onclick="event.stopPropagation();copyBellPhone('${String(it.phone).replace(/'/g,"\\'")}')" title="Copy phone">📞</button>
+        <button class="btn btn-ghost btn-sm" style="padding:0 5px;font-size:12px;color:var(--muted);flex-shrink:0;" title="Dismiss this reminder" onclick="event.stopPropagation();dismissBellItem('${it.type}','${String(it.id).replace(/'/g,"\\'")}')">✕</button>
       </div>`).join('')}
     <div style="padding:8px 14px;font-size:10px;color:var(--muted);text-align:center;">Click an item to jump to it</div>`;
 }
 
+function dismissBellItem(type, id){
+  _bellDismissed[type+':'+id] = true;
+  updateReminderCount();
+  notify('Reminder dismissed','success');
+}
+
+function clearAllBell(){
+  const items=getBellItems();
+  items.forEach(it=>{ _bellDismissed[it.type+':'+it.id]=true; });
+  updateReminderCount();
+  notify('All reminders cleared','success');
+}
+
 function navigateToBellItem(type, id){
+  // Dismiss this reminder so it doesn't come back until state changes
+  _bellDismissed[type+':'+id] = true;
   if(type==='udhaar'){
     navigate('udhaar'); openUdhaarDetail(id);
   } else {
     navigate('advance'); highlightAdvCard(id);
   }
+  closeBellPanel();
+  updateReminderCount();
 }
 
 function highlightAdvCard(id){
