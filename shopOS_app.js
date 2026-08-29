@@ -3579,7 +3579,12 @@ function renderUdhaar(){
         <div class="ud-card-header">
           <div>
             <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:16px;color:var(--red);font-weight:800;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:15px;color:var(--accent2);font-weight:800;">🕐 ${lastTxnDate}</span>`:''}</div>
-            ${rec.phone?`<div class="ud-card-phone"><span style="cursor:pointer;" title="Click to copy phone" onclick="event.stopPropagation();copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">📞 ${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;margin-left:4px;" title="WhatsApp ${rec.phone}" onclick="event.stopPropagation();waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲</button></div>`:''}
+            ${rec.phone?`<div class="ud-card-phone" style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+              <span style="cursor:pointer;display:flex;align-items:center;gap:6px;" title="Click to copy phone" onclick="event.stopPropagation();copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')"><span style="font-size:15px;">📞</span> ${rec.phone}</span>
+              <button class="wa-ico-btn" title="WhatsApp ${rec.phone}" onclick="event.stopPropagation();waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">
+                <svg viewBox="0 0 32 32" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M16.04 4C9.6 4 4 9.6 4 16.04c0 2.62.9 5.06 2.42 7.03L4.3 27.5l4.6-1.14c1.86 1.23 4.07 1.94 6.42 1.94 2.35 0 4.56-.71 6.42-1.94l3.86.96-1.18-3.82c1.5-1.94 2.38-4.32 2.38-6.9C26.8 9.6 21.22 4 16.04 4zm-7.7 5.9c.6-.14 1.22.02 1.7.42l1.24 1.1c.4.36.44.98.08 1.36l-.84.9c-.3.32-.34.82-.06 1.18 1.06 1.5 2.46 2.86 4.12 4 1.4.92 2.9 1.98 4.56 1.7.92-.16 1.7-.72 2.16-1.54l.04-.1c.26-.56.3-1.18.12-1.76l-1.16-1.7c-.3-.44-.9-.58-1.34-.26l-1.12.9c-.4.32-.9.26-1.24-.14l-2.5-2.54c-.4-.4-.46-1-.14-1.4l.88-1.1c.32-.42.22-1-.18-1.3l-1.66-1.52c-.46-.42-1.08-.6-1.68-.42l-.16.06z"/></svg>
+              </button>
+            </div>`:''}
             ${rec.reference?`<div style="font-size:13px;color:var(--accent2);margin-top:8px;">🏷️ ${rec.reference}</div>`:''}
             ${hasCredit?`<div style="font-size:12px;color:var(--accent2);margin-top:8px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
           </div>
@@ -3709,7 +3714,7 @@ function openUdhaarDetail(id){
       </div>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">
-      ${rec.phone?`<span>📞 <span style="cursor:pointer;" title="Click to copy" onclick="copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;" title="WhatsApp ${rec.phone}" onclick="waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲 WhatsApp</button></span>`:''}
+      ${rec.phone?`<span style="display:inline-flex;align-items:center;gap:10px;">📞 <span style="cursor:pointer;" title="Click to copy" onclick="copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">${rec.phone}</span><button class="wa-ico-btn" style="width:32px;height:32px;" title="WhatsApp ${rec.phone}" onclick="waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')"><svg viewBox="0 0 32 32" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M16.04 4C9.6 4 4 9.6 4 16.04c0 2.62.9 5.06 2.42 7.03L4.3 27.5l4.6-1.14c1.86 1.23 4.07 1.94 6.42 1.94 2.35 0 4.56-.71 6.42-1.94l3.86.96-1.18-3.82c1.5-1.94 2.38-4.32 2.38-6.9C26.8 9.6 21.22 4 16.04 4zm-7.7 5.9c.6-.14 1.22.02 1.7.42l1.24 1.1c.4.36.44.98.08 1.36l-.84.9c-.3.32-.34.82-.06 1.18 1.06 1.5 2.46 2.86 4.12 4 1.4.92 2.9 1.98 4.56 1.7.92-.16 1.7-.72 2.16-1.54l.04-.1c.26-.56.3-1.18.12-1.76l-1.16-1.7c-.3-.44-.9-.58-1.34-.26l-1.12.9c-.4.32-.9.26-1.24-.14l-2.5-2.54c-.4-.4-.46-1-.14-1.4l.88-1.1c.32-.42.22-1-.18-1.3l-1.66-1.52c-.46-.42-1.08-.6-1.68-.42l-.16.06z"/></svg></button></span>`:''}
       ${rec.reference?`<span>🏷️ ${rec.reference}</span>`:''}
       ${(rec.credit||0)>0?`<span style="color:var(--accent2);font-weight:600;">💰 Credit: ₹${fmt(rec.credit)} available</span>`:''}
     </div>
