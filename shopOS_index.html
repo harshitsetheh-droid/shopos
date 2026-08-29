@@ -6,7 +6,7 @@
   <title>ShopOS — Retail Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="leaflet.css?v=1">
-  <link rel="stylesheet" href="shopOS_style.css?v=15">
+  <link rel="stylesheet" href="shopOS_style.css?v=16">
 </head>
 <body>
 
@@ -1142,7 +1142,8 @@
 
 <!-- Udhaar Reminder Settings Modal -->
 <div class="modal-bg" id="udhaarReminderModal">
-  <div class="modal" style="width:520px;max-height:85vh;overflow-y:auto;">
+  <div class="modal" style="width:520px;">
+    <div class="rem-body">
     <div class="modal-title">⏰ Udhaar Reminder Settings</div>
     <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Choose when to get reminded about pending udhaar payments. Reminders will appear as notifications.</p>
 
@@ -1200,6 +1201,8 @@
     </div>
     <div id="fixedRemindersWrap" style="margin-bottom:16px;"></div>
 
+    <div id="remExistingList" style="margin-bottom:12px;"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('udhaarReminderModal')">Close</button>
       <button class="btn btn-primary" onclick="saveReminderSettings()">✓ Save & Apply</button>
@@ -1290,7 +1293,7 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=28"></script>
+<script src="shopOS_app.js?v=29"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

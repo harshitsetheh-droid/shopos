@@ -3410,8 +3410,8 @@ function renderUdhaar(){
       return `<div class="ud-card" onclick="openUdhaarDetail('${rec.id}')">
         <div class="ud-card-header">
           <div>
-            <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:13px;color:var(--red);font-weight:700;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:12px;color:var(--muted);font-weight:500;">🕐 ${lastTxnDate}</span>`:''}</div>
-            ${rec.phone?`<div class="ud-card-phone">📞 ${rec.phone}</div>`:''}
+            <div class="ud-card-name">👤 ${rec.name}${pendingSince&&rec.totalPending>0?` <span style="margin-left:10px;font-size:16px;color:var(--red);font-weight:800;letter-spacing:0.5px;">⏳ Pending since ${pendingSince}</span>`:''}${lastTxnDate?` <span style="margin-left:14px;font-size:12px;color:var(--muted);font-weight:500;">🕐 ${lastTxnDate}</span>`:''}</div>
+            ${rec.phone?`<div class="ud-card-phone"><span style="cursor:pointer;" title="Click to copy phone" onclick="event.stopPropagation();copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">📞 ${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;margin-left:4px;" title="WhatsApp ${rec.phone}" onclick="event.stopPropagation();waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲</button></div>`:''}
             ${rec.reference?`<div style="font-size:11px;color:var(--accent2);margin-top:2px;">🏷️ ${rec.reference}</div>`:''}
             ${hasCredit?`<div style="font-size:10px;color:var(--accent2);margin-top:3px;">💰 Credit: ₹${fmt(rec.credit)}</div>`:''}
           </div>
@@ -3441,6 +3441,29 @@ function setUdhaarSort(s){
   renderUdhaar();
 }
 
+function copyUdhaarPhone(phone){
+  if(!phone) return;
+  (navigator.clipboard ? navigator.clipboard.writeText(phone) : Promise.reject()).then(
+    () => notify(`📞 Phone copied: ${phone}`),
+    () => { const ta=document.createElement('textarea'); ta.value=phone; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy'); notify(`📞 Phone copied: ${phone}`);}catch(e){ notify('Copy failed','error'); } document.body.removeChild(ta); }
+  );
+}
+
+function waUdhaar(phone, name){
+  let p = String(phone||'').replace(/[^0-9]/g,'');
+  if(p.length===10) p='91'+p;
+  if(p.length<10){ notify('No valid phone number','error'); return; }
+  const ud = udhaarRecords.find(r => (r.name||'').toLowerCase() === String(name||'').toLowerCase());
+  const pending = ud ? ud.totalPending : 0;
+  const dn = ud ? ud.name : (name||'Customer');
+  let msg = `Namaste *${dn}* 🙏\n\n`;
+  msg += `Aapka yeh dukaan par baaki hua udhaar abhi tak pending hai. 👇\n`;
+  msg += `💰 *Pending Amount:* ₹${fmt(pending)}\n`;
+  if(ud && ud.totalBill) msg += `📄 *Total Billed:* ₹${fmt(ud.totalBill)}\n`;
+  msg += `\nKripya jaldi zyada pay karne ka koshish karein. Thank you! 🙏`;
+  window.open(`https://wa.me/${p}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
 function openUdhaarDetail(id){
   const rec=udhaarRecords.find(r=>r.id===id); if(!rec) return;
   document.getElementById('udDetailId').value=id;
@@ -3464,7 +3487,7 @@ function openUdhaarDetail(id){
         ${pendingBills.length>1&&bill.pending>0?`<input type="checkbox" id="billSelect_${idx}" class="bill-checkbox" value="${idx}" checked style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;" title="Include this bill in payment">`:''}
         <span class="badge badge-blue">${bill.saleId}</span>
         <span style="font-size:11px;color:var(--muted);">${new Date(bill.date).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</span>
-        ${billPendingTimeSince&&bill.pending>0?`<span style="font-size:10px;color:var(--red);margin-left:4px;">⏳ ${billPendingTimeSince}</span>`:''}
+        ${billPendingTimeSince&&bill.pending>0?`<span style="font-size:14px;color:var(--red);margin-left:4px;font-weight:800;">⏳ ${billPendingTimeSince}</span>`:''}
         <span style="margin-left:auto;font-size:13px;font-weight:600;color:${bill.pending<=0?'var(--green)':'var(--red)'};">₹${fmt(bill.pending)} pending</span>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">${bill.items.map(i=>`${i.name}×${i.qty}`).join(', ')}</div>
@@ -3484,11 +3507,19 @@ function openUdhaarDetail(id){
   // Date filter controls
   const filterActive = dateFrom || dateTo;
   const dateFilterHtml = `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
-      <input type="text" id="udDateFrom" data-calendar value="${dateFrom}" readonly placeholder="From..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:12px;color:var(--text);cursor:pointer;">
-      <span style="color:var(--muted);font-size:12px;">→</span>
-      <input type="text" id="udDateTo" data-calendar value="${dateTo}" readonly placeholder="To..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:12px;color:var(--text);cursor:pointer;">
-      ${filterActive?`<button class="btn btn-ghost btn-sm" onclick="var id=document.getElementById('udDetailId').value;var df=document.getElementById('udDateFrom');var dt=document.getElementById('udDateTo');if(df){df._val='';df.value='';}if(dt){dt._val='';dt.value='';}openUdhaarDetail(id)">✕ Clear</button>`:''}
+    <div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">📅 Filter Bill History (Date Interval)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:130px;">
+          <span style="font-size:11px;color:var(--muted);">From</span>
+          <input type="text" id="udDateFrom" data-calendar value="${dateFrom}" readonly placeholder="DD-MMM-YYYY" style="flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:13px;color:var(--text);cursor:pointer;">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:130px;">
+          <span style="font-size:11px;color:var(--muted);">To</span>
+          <input type="text" id="udDateTo" data-calendar value="${dateTo}" readonly placeholder="DD-MMM-YYYY" style="flex:1;padding:9px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);font-size:13px;color:var(--text);cursor:pointer;">
+        </div>
+        ${filterActive?`<button class="btn btn-ghost btn-sm" onclick="var id=document.getElementById('udDetailId').value;var df=document.getElementById('udDateFrom');var dt=document.getElementById('udDateTo');if(df){df._val='';df.value='';}if(dt){dt._val='';dt.value='';}openUdhaarDetail(id)">✕ Clear</button>`:''}
+      </div>
     </div>`;
   const html=`
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
@@ -3510,7 +3541,7 @@ function openUdhaarDetail(id){
       </div>
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:12px;">
-      ${rec.phone?`<span>📞 ${rec.phone}</span>`:''}
+      ${rec.phone?`<span>📞 <span style="cursor:pointer;" title="Click to copy" onclick="copyUdhaarPhone('${String(rec.phone).replace(/'/g,"\\'")}')">${rec.phone}</span> <button class="btn btn-ghost btn-sm" style="padding:0 8px;font-size:11px;" title="WhatsApp ${rec.phone}" onclick="waUdhaar('${String(rec.phone).replace(/'/g,"\\'")}','${String(rec.name).replace(/'/g,"\\'")}')">📲 WhatsApp</button></span>`:''}
       ${rec.reference?`<span>🏷️ ${rec.reference}</span>`:''}
       ${(rec.credit||0)>0?`<span style="color:var(--accent2);font-weight:600;">💰 Credit: ₹${fmt(rec.credit)} available</span>`:''}
     </div>
@@ -6364,8 +6395,44 @@ function openUdhaarReminderSettings(){
   renderReminderOptions();
   renderActiveReminders();
   renderFixedReminders();
+  renderExistingReminders();
   document.getElementById('customReminderVal').value='';
   document.getElementById('udhaarReminderModal').classList.add('open');
+}
+
+function renderExistingReminders(){
+  const wrap=document.getElementById('remExistingList');
+  if(!wrap) return;
+  if(!_udhaarFixedReminders.length){ wrap.innerHTML=''; return; }
+  const groups={};
+  _udhaarFixedReminders.forEach(r=>{
+    const k=(r.custName||'').toLowerCase();
+    if(!groups[k]) groups[k]={name:r.custName, list:[]};
+    groups[k].list.push(r);
+  });
+  const names=Object.keys(groups);
+  wrap.innerHTML=`
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Existing Customer Reminders</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${names.map(k=>{
+        const g=groups[k];
+        const up=up(g.name);
+        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;">
+          <div style="font-weight:700;">👤 ${escapeHtml(g.name)}</div>
+          ${g.list.map(r=>{
+            const d=new Date(r.date);
+            return `<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:3px;">
+              <span>⏰ ${d.toLocaleDateString('en-IN')} ${d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})}${r.note?` · ${r.note}`:''}</span>
+              <button class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:10px;" onclick="openFixedRemFor('${String(g.name).replace(/'/g,"\\'")}')">➕ Add more</button>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function openFixedRemFor(name){
+  document.getElementById('fixRemCustText').value=name;
 }
 
 function renderReminderOptions(){
@@ -6440,7 +6507,10 @@ function getFixRemCustItems(q){
   const s=new Set();
   udhaarRecords.filter(r=>r.totalPending>0||(r.credit||0)>0).forEach(r=>s.add(r.name));
   sales.forEach(r=>{const n=r.customerName||'Walk-in';if(n) s.add(n);});
-  return [...s].filter(n=>!q||matchWords(n,q.toLowerCase())).slice(0,10).map(n=>({label:n,value:n}));
+  return [...s].filter(n=>!q||matchWords(n,q.toLowerCase())).slice(0,10).map(n=>{
+    const hasRem = _udhaarFixedReminders.some(r => (r.custName||'').toLowerCase() === n.toLowerCase());
+    return {label: n + (hasRem ? ' ⏰ (has reminder)' : ''), value:n};
+  });
 }
 
 function addFixedReminder(){

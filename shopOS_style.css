@@ -522,7 +522,10 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
 @keyframes popIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}
 .modal-title{font-family:var(--font-head);font-size:20px;font-weight:700;margin-bottom:6px;}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;}
-
+/* Reminder modal: keep actions always visible (fixed footer), scroll only body */
+#udhaarReminderModal > .modal{display:flex;flex-direction:column;padding:0;max-height:90vh;overflow:hidden;}
+#udhaarReminderModal .rem-body{flex:1;overflow-y:auto;padding:28px;}
+#udhaarReminderModal .modal-actions{flex-shrink:0;margin:0;padding:14px 28px;border-top:1px solid var(--border);background:var(--surface);border-radius:0 0 16px 16px;}
 /* ── MAP PICKER ── */
 #mapPickerDiv.leaflet-container{font-family:inherit;}
 .map-search-item:hover{background:var(--accent2);color:#fff;}
