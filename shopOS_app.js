@@ -6732,10 +6732,16 @@ function renderReminderOptions(){
   }).join('');
 }
 
+function _clearIntFiredFor(min){
+  // Clear previously-fired flags for this interval so a newly set reminder fires fresh
+  const suf='|'+min;
+  Object.keys(_udhaarIntFired).forEach(k=>{ if(k.endsWith(suf)) delete _udhaarIntFired[k]; });
+}
+
 function toggleReminderPreset(min){
   const idx=_udhaarReminderIntervals.indexOf(min);
   if(idx>=0) _udhaarReminderIntervals.splice(idx,1);
-  else { _udhaarReminderIntervals.push(min); _udhaarIntSetAt[min]=Date.now(); }
+  else { _udhaarReminderIntervals.push(min); _udhaarIntSetAt[min]=Date.now(); _clearIntFiredFor(min); }
   _udhaarReminderIntervals.sort((a,b)=>a-b);
   if(!_udhaarReminderIntervals.includes(min)){ delete _udhaarIntSetAt[min]; }
   _saveReminderState();
@@ -6755,6 +6761,7 @@ function addCustomReminder(){
     _udhaarReminderIntervals.push(min);
     _udhaarReminderIntervals.sort((a,b)=>a-b);
     _udhaarIntSetAt[min]=Date.now();
+    _clearIntFiredFor(min);
   }
   _saveReminderState();
   document.getElementById('customReminderVal').value='';
@@ -7026,7 +7033,12 @@ function scheduleUdhaarReminderCheck(){
   setInterval(()=>{
     checkAndFireUdhaarReminders();
     updateReminderCount(); // keep bell/count live without refresh
-  }, 60*1000); // check every minute for precise fixed reminders
+  }, 30*1000); // check every 30s
+  // Also re-check when the tab regains focus (immediate if it was due while away)
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden){ checkAndFireUdhaarReminders(); updateReminderCount(); }
+  });
+  window.addEventListener('focus', ()=>{ checkAndFireUdhaarReminders(); updateReminderCount(); });
 }
 
 // ── CUSTOMER LEDGER ────────────────────────────────────────────────────────────
