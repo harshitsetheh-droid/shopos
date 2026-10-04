@@ -212,6 +212,152 @@ async function initDB() {
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS sgst DECIMAL(5,2) DEFAULT 0`);
     await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS igst DECIMAL(5,2) DEFAULT 0`);
 
+    // ── GST module migrations (2026-08) ───────────────────────────────────────
+    // Everything below is ADDITIVE. No table or column is dropped.
+
+    // Business identity for GSTR-1 / GSTR-3B
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS gstin VARCHAR(15) DEFAULT ''`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS legal_name VARCHAR(255) DEFAULT ''`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS trade_name VARCHAR(255) DEFAULT ''`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS pan VARCHAR(10) DEFAULT ''`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS state_code VARCHAR(2) DEFAULT ''`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS constitution VARCHAR(30) DEFAULT 'proprietorship'`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS filing_frequency VARCHAR(20) DEFAULT 'monthly'`);
+    await client.query(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS qrmp_type VARCHAR(20) DEFAULT 'monthly-payment'`);
+
+    // Product master: UQC + nil/exempt flags + SAC
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS sac VARCHAR(20) DEFAULT ''`);
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS uqc VARCHAR(10) DEFAULT ''`);
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_nil BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_exempt BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS exempt_reason TEXT DEFAULT ''`);
+
+    // Sales: document type, invoice numbering, place of supply, credit notes.
+    // is_interstate fixes a real bug: `intra` was never persisted, so after any
+    // reload historical invoices re-printed with IGST instead of CGST+SGST.
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS doc_type VARCHAR(30) DEFAULT 'tax_invoice'`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_no VARCHAR(64) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS invoice_series VARCHAR(30) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS cust_gstin VARCHAR(15) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS place_of_supply VARCHAR(2) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_interstate BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS supply_type VARCHAR(20) DEFAULT 'domestic'`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS doc_status VARCHAR(20) DEFAULT 'finalised'`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancel_date TIMESTAMP DEFAULT NULL`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS cancel_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS reverse_charge BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS nil_rated_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS exempt_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS non_gst_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS linked_invoice_no VARCHAR(64) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS linked_invoice_id VARCHAR(50) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS linked_invoice_date TIMESTAMP DEFAULT NULL`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS note_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS export_payment_type VARCHAR(10) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_invoice_no VARCHAR(64) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS original_invoice_period VARCHAR(7) DEFAULT ''`);
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS amendment_reason TEXT DEFAULT ''`);
+    // Raw customer location string the POS captured. The place-of-supply state
+    // code is derived from it at billing time and stored in place_of_supply,
+    // but keeping the string lets a later state-code fix be re-derived without
+    // asking the counter staff to retype it.
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_location TEXT DEFAULT ''`);
+
+    // Purchases: supplier GSTIN + ITC heads, needed for GSTR-2B reconciliation
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_gstin VARCHAR(15) DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_state_code VARCHAR(2) DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_invoice_date TIMESTAMP DEFAULT NULL`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_taxable DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_cgst DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_sgst DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_igst DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_cess DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS is_import BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS reverse_charge BOOLEAN DEFAULT false`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS itc_eligible BOOLEAN DEFAULT true`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS ineligible_reason TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS expense_id VARCHAR(50) DEFAULT ''`);
+
+    // Return periods: Draft → Validated → Exported → Filed → Locked
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gst_periods (
+        id SERIAL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        period VARCHAR(7) NOT NULL,
+        status VARCHAR(20) DEFAULT 'draft',
+        arn VARCHAR(50) DEFAULT '',
+        filing_date TIMESTAMP DEFAULT NULL,
+        locked_at TIMESTAMP DEFAULT NULL,
+        gstr1_exported_at TIMESTAMP DEFAULT NULL,
+        gstr3b_exported_at TIMESTAMP DEFAULT NULL,
+        manual_input JSONB DEFAULT '{}'::jsonb,
+        notes TEXT DEFAULT '',
+        updated_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (account_id, period)
+      )`);
+
+    // Per-period 2B reconciliation decisions (accept / reject / pending + note)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gst_recon_2b (
+        id SERIAL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        period VARCHAR(7) NOT NULL,
+        match_key VARCHAR(200) NOT NULL,
+        bucket VARCHAR(30) DEFAULT 'pending',
+        decision VARCHAR(20) DEFAULT 'pending',
+        note TEXT DEFAULT '',
+        supplier_gstin VARCHAR(15) DEFAULT '',
+        invoice_no VARCHAR(64) DEFAULT '',
+        invoice_date TIMESTAMP DEFAULT NULL,
+        taxable DECIMAL(12,2) DEFAULT 0,
+        igst DECIMAL(12,2) DEFAULT 0,
+        cgst DECIMAL(12,2) DEFAULT 0,
+        sgst DECIMAL(12,2) DEFAULT 0,
+        cess DECIMAL(12,2) DEFAULT 0,
+        raw JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (account_id, period, match_key)
+      )`);
+
+    // Audit log for export / mark-filed / period-lock actions
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gst_audit_log (
+        id SERIAL,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        period VARCHAR(7) DEFAULT '',
+        action VARCHAR(40) NOT NULL,
+        detail TEXT DEFAULT '',
+        actor VARCHAR(255) DEFAULT '',
+        meta JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+
+    // GST config (JSONB per account) — rates, thresholds, due dates live here
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gst_config (
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        config JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )`);
+
+    // ── Performance indexes ───────────────────────────────────────────────────
+    // /api/save re-writes rows on every change; these keep lookups fast.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_account_date ON sales(account_id, date)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_account_inv ON sales(account_id, invoice_no)`);
+    // NOTE: an index on to_char(date,'YYYY-MM') is rejected — the function is not
+    // IMMUTABLE. The (account_id, date) index above already serves period range
+    // queries, so no expression index is needed.
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_account_date_doc ON sales(account_id, date, doc_status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_account_status ON sales(account_id, doc_status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_inv_account_date ON inventory_history(account_id, date)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_inv_account_gstin ON inventory_history(account_id, supplier_gstin)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_products_account_cat ON products(account_id, cat_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_gst_periods_account ON gst_periods(account_id, status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_gst_audit_account ON gst_audit_log(account_id, created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_gst_recon_period ON gst_recon_2b(account_id, period)`);
+
     // Migrate existing gst data into cgst/sgst (split equally for backward compat)
     await client.query(`
       UPDATE products SET

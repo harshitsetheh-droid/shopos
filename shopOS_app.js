@@ -5,6 +5,7 @@
 // ── API CONFIG ───────────────────────────────────────────────────────────────
 const API_BASE = 'http://localhost:3000/api';
 let _token = sessionStorage.getItem('shopOS_token') || '';
+let _authUser = null; // full user record incl. business GST details
 function _authHeaders(){
   return _token ? { 'Authorization': 'Bearer ' + _token, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 }
@@ -24,12 +25,85 @@ function saveAllData(immediate){
   _savePromise = _savePromise.then(() => _doSave()).catch(() => {});
   return immediate ? _savePromise : void 0;
 }
+// ── Delta tracking (perf) ─────────────────────────────────────────────────────
+// The previous /api/save deleted and re-inserted EVERY row on every keystroke-
+// triggered save, which is O(n) and gets slow with real volumes. We now
+// fingerprint each record and send only what actually changed. The server still
+// accepts a full payload (see the fallback inside _buildDelta) so nothing breaks.
+let _syncSig = {};       // collection -> { id: hash }
+let _syncPending = null; // true once a change happened before the first snapshot
+
+function _sigOf(v){
+  try { return String(JSON.stringify(v)); } catch(e){ return String(v); }
+}
+function _recordSig(list, keyFn){
+  const out = {};
+  for (const r of (list || [])){
+    const k = keyFn(r);
+    if (k != null) out[k] = _sigOf(r);
+  }
+  return out;
+}
+function _buildDelta(){
+  const snap = {
+    categories:    _recordSig(categories,    (r) => r.id),
+    products:      _recordSig(products,      (r) => r.id),
+    sales:         _recordSig(sales,         (r) => r.id),
+    inventoryHistory: _recordSig(inventoryHistory, (r) => r.id),
+    udhaarRecords: _recordSig(udhaarRecords, (r) => r.id),
+    advanceOrders: _recordSig(advanceOrders, (r) => r.id),
+    notes:         _recordSig(notes,         (r) => r.id),
+    customerLedgers: _recordSig(customerLedgers, (r) => r.id),
+    expenses:      _recordSig(expenses,      (r) => r.id),
+  };
+
+  if (_syncPending || !Object.keys(_syncSig).length){
+    // No baseline yet → send everything once.
+    _syncSig = snap;
+    _syncPending = false;
+    return { mode:'full' };
+  }
+
+  const live = {
+    categories, products, sales, inventoryHistory, udhaarRecords,
+    advanceOrders, notes, customerLedgers, expenses,
+  };
+  const keyFns = {
+    categories:(r) => r.id, products:(r) => r.id, sales:(r) => r.id,
+    inventoryHistory:(r) => r.id, udhaarRecords:(r) => r.id,
+    advanceOrders:(r) => r.id, notes:(r) => r.id,
+    customerLedgers:(r) => r.id, expenses:(r) => r.id,
+  };
+
+  const changed = {};
+  let any = false;
+  for (const name of Object.keys(snap)){
+    const prev = _syncSig[name] || {};
+    const now = snap[name];
+    const upserts = [];
+    const deletes = [];
+    for (const k of Object.keys(now)){
+      if (prev[k] !== now[k]) upserts.push(live[name].find((r) => keyFns[name](r) === k));
+    }
+    for (const k of Object.keys(prev)){
+      if (!(k in now)) deletes.push(k);
+    }
+    if (upserts.length || deletes.length){
+      changed[name] = { upserts: upserts.filter(Boolean), deletes };
+      any = true;
+    }
+  }
+  _syncSig = snap;
+  if (!any) return { mode:'noop' };
+  return { mode:'delta', changed };
+}
+
 async function _doSave(){
   if (!_dataLoaded) return;
   try {
     await _api('/save', {
       method: 'POST',
-      body: JSON.stringify({categories,products,sales,inventoryHistory,udhaarRecords,advanceOrders,notes,customerLedgers,purchasePriceLog,supplierTransportLog,expenses})
+      body: JSON.stringify({categories,products,sales,inventoryHistory,udhaarRecords,advanceOrders,notes,customerLedgers,purchasePriceLog,supplierTransportLog,expenses,delta:_buildDelta()})
     });
     _savePromise = Promise.resolve();
   } catch(e) {
@@ -257,6 +331,7 @@ async function doLogin(){
     });
     _token = res.token;
     sessionStorage.setItem('shopOS_token', _token);
+    _authUser = res.user || null;
     unlockApp(res.user.name||res.user.username, res.user.location);
     await loadAllData();
   } catch(e) {
@@ -297,6 +372,8 @@ function unlockApp(displayName, location){
   if(lbl) lbl.textContent='👤 '+displayName;
   const ci=document.getElementById('cartCustLocation');
   if(ci) ci.value=_userLocation;
+  // Let the GST module pick up the business GST details from login/verify
+  if(typeof gstOnLogin==='function'){ try{ gstOnLogin(_authUser); }catch(e){ console.warn('GST init failed', e); } }
   // Show shop location in nav if present
   const navWrap=document.getElementById('navLocWrap');
   const navLabel=document.getElementById('navLocLabel');
@@ -325,7 +402,8 @@ function doLogout(){
     document.addEventListener('DOMContentLoaded', async () => {
       try {
         const res = await _api('/auth/verify');
-        unlockApp(res.user.name||res.user.username, res.user.location);
+        _authUser = res.user || null;
+    unlockApp(res.user.name||res.user.username, res.user.location);
         await loadAllData();
         calInit();
         // Init custom selects + enhance all native selects
@@ -1333,7 +1411,11 @@ function navigate(page){
     udhaar:renderUdhaar, customers:renderCustomers, reports:renderReports,
     qr:renderQrPage, expenses:renderExpenses, defaults:renderDefaults,
     scanadd:renderScanAdd,
-    notes:renderNotes
+    notes:renderNotes,
+    // gst_ui.js loads after this file, so renderGstPage does not exist yet at the
+    // navigate('dashboard') call at the bottom of this file. typeof-guard it rather
+    // than letting the whole render throw on a missing binding.
+    gst: typeof renderGstPage==='function' ? renderGstPage : null
   };
   renders[page]?.();
   enhanceSelects();
@@ -1824,10 +1906,10 @@ function renderExpenses(){
 // ── BY DEFAULT SETTINGS ──────────────────────────────────────────────────────
 let _defaults = {};
 const _defFields = [
-  { key:'cgst',       label:'CGST %',            type:'number', step:'0.1', min:0, max:100, placeholder:'0' },
-  { key:'sgst',       label:'SGST %',            type:'number', step:'0.1', min:0, max:100, placeholder:'0' },
-  { key:'igst',       label:'IGST %',            type:'number', step:'0.1', min:0, max:100, placeholder:'0' },
-  { key:'cess',       label:'Cess %',            type:'number', step:'0.1', min:0, max:100, placeholder:'0' },
+  { key:'cgst',       label:'CGST %',            type:'number', step:'0.01', min:0, max:100, placeholder:'0' },
+  { key:'sgst',       label:'SGST %',            type:'number', step:'0.01', min:0, max:100, placeholder:'0' },
+  { key:'igst',       label:'IGST %',            type:'number', step:'0.01', min:0, max:100, placeholder:'0' },
+  { key:'cess',       label:'Cess %',            type:'number', step:'0.01', min:0, max:100, placeholder:'0' },
   { key:'hsn',        label:'HSN / SAC Code',    type:'text',   placeholder:'e.g. 0405' },
   { key:'location',   label:'Location (shelf/rack)', type:'text', placeholder:'e.g. Aisle 3' },
   { key:'low',        label:'Low Stock Alert',   type:'number', step:'1', min:0, placeholder:'10' },
@@ -2278,11 +2360,312 @@ function extractState(loc){
   return l;
 }
 function isIntrastate(){
+  // An explicit place of supply always wins over the free-text location box.
+  // Otherwise the counter staff could pick POS 29 on a Maharashtra bill and the
+  // tax would still be split CGST+SGST — an invoice that contradicts itself.
+  const chosen = (document.getElementById('gstPlaceOfSupply')?.value || '').trim();
+  if (chosen){
+    const own = gstOwnStateCode();
+    return !own || chosen === own;
+  }
   const custLoc=document.getElementById('cartCustLocation')?.value||_userLocation;
   if(!custLoc||!_userLocation) return true;
   return extractState(custLoc)===extractState(_userLocation);
 }
-function onCustLocationChange(){ updateTotals(); renderCart(); }
+function onCustLocationChange(){ updateTotals(); renderCart(); gstSyncPlaceOfSupply(); }
+
+// ── GST document capture (billing screen) ─────────────────────────────────────
+// Everything here is presentation only: it reads the config served by
+// /api/gst/config so document types, reason codes and state codes are never
+// duplicated in this file. gstBillDocMeta() is the single place that turns the
+// form into the fields stored on the sale row.
+let _gstCfgPromise = null;
+let _gstCfg = null;      // the rules, from config
+let _gstStates = {};     // state code → name; sent alongside config, not inside it
+
+function gstLoadConfig(){
+  if (_gstCfgPromise) return _gstCfgPromise;
+  _gstCfgPromise = _api('/gst/config')
+    .then((r) => {
+      _gstCfg = (r && r.config) || null;
+      _gstStates = (r && r.states) || _gstStates || {};
+      return _gstCfg;
+    })
+    .catch(() => { _gstCfgPromise = null; return null; });
+  return _gstCfgPromise;
+}
+
+function gstDocTypes(){
+  const list = _gstCfg && _gstCfg.documents;
+  if (list && list.length) return list;
+  // Config not loaded yet — the two types that matter for a counter bill.
+  return [{ value: 'tax_invoice', label: 'Tax Invoice', inReturn: true },
+          { value: 'bill_of_supply', label: 'Bill of Supply', inReturn: true }];
+}
+
+function gstRenderBillFields(){
+  const dt = document.getElementById('gstDocType');
+  if (!dt) return;
+  // Re-render from config every time rather than latching on first paint: the
+  // first paint usually happens before /gst/config returns, and a latch would
+  // leave the counter stuck with the two-item fallback list for the whole session.
+  const wanted = gstDocTypes();
+  const have = [...dt.options].map((o) => o.value).join(',');
+  const cur = dt.value;
+  if (have !== wanted.map((d) => d.value).join(',')){
+    dt.innerHTML = wanted
+      .map((d) => `<option value="${d.value}">${d.label}${d.inReturn ? '' : ' (not in return)'}</option>`).join('');
+    dt.value = wanted.some((d) => d.value === cur) ? cur : 'tax_invoice';
+    // The custom dropdown copied the old option list into its trigger; rebuild it
+    // or the counter sees a stale label and picks from a stale list.
+    resetCustomSelect(dt);
+  }
+
+  const pos = document.getElementById('gstPlaceOfSupply');
+  const states = _gstStates;
+  if (pos){
+    const opts = Object.entries(states)
+      .map(([code, name]) => `<option value="${code}">${code} — ${name}</option>`).join('');
+    if (pos.dataset.stateCount !== String(Object.keys(states).length)){
+      const curPos = pos.value;
+      pos.innerHTML = '<option value="">— same as shop state —</option>' + opts;
+      pos.dataset.stateCount = String(Object.keys(states).length);
+      resetCustomSelect(pos);
+      setGstPlaceOfSupply(curPos);
+    }
+  }
+  if (dt.dataset.enhanced !== '1' || pos === null || pos.dataset.enhanced !== '1') enhanceSelects();
+}
+
+function gstOwnStateCode(){
+  const states = _gstStates;
+  const own = extractState(_userLocation || '');
+  for (const [code, name] of Object.entries(states)){
+    if (name.toLowerCase() === String(own).toLowerCase()) return code;
+  }
+  return '';
+}
+
+// The custom dropdown keeps its trigger label as separate DOM text, so assigning
+// select.value alone leaves the label showing the old state. Always go through
+// here. Returns the code that was applied.
+function setGstPlaceOfSupply(code){
+  const pos = document.getElementById('gstPlaceOfSupply');
+  if (!pos) return '';
+  pos.value = code || '';
+  const txt = document.getElementById('gstPlaceOfSupply_txt');
+  if (txt){
+    const opt = [...pos.options].find((o) => o.value === (code || ''));
+    // options can be empty before /gst/config resolves — leave the label alone
+    // rather than throwing on pos.options[0].
+    if (opt) txt.textContent = opt.text;
+    else if (pos.options[0]) txt.textContent = pos.options[0].text;
+  }
+  const wrap = document.getElementById('gstPlaceOfSupply_w');
+  if (wrap){
+    wrap.querySelectorAll('.cust-sel-item').forEach((el) => el.classList.toggle('sel', el.dataset.value === (code || '')));
+  }
+  return pos.value;
+}
+
+// Place of supply defaults to wherever the goods actually move to. The counter
+// staff already types that into the cart location box, so derive it rather than
+// making them pick it twice — they can still override in the dropdown, and once
+// they have, isIntrastate() defers to them.
+function gstSyncPlaceOfSupply(){
+  const pos = document.getElementById('gstPlaceOfSupply');
+  if (!pos || pos.dataset.touched === '1') return;
+  const cust = extractState(document.getElementById('cartCustLocation')?.value || _userLocation || '');
+  const own = gstOwnStateCode();
+  let found = '';
+  for (const [code, name] of Object.entries(_gstStates)){
+    if (name.toLowerCase() === String(cust).toLowerCase()) { found = code; break; }
+  }
+  setGstPlaceOfSupply(found || own || '');
+  gstRefreshBillMeta();
+}
+
+function toggleGstBillFields(){
+  const box = document.getElementById('gstBillFields');
+  const ch  = document.getElementById('gstDetailsChevron');
+  if (!box) return;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  if (ch) ch.textContent = open ? '▴' : '▾';
+  if (open) { gstLoadConfig().then(gstRenderBillFields); gstRefreshBillMeta(); }
+}
+
+function onGstDocTypeChange(){
+  const dt = document.getElementById('gstDocType');
+  const no = document.getElementById('gstInvoiceNo');
+  if (dt && no && !no.value.trim()) no.value = gstNextInvoiceNo();
+  gstRefreshBillMeta();
+}
+
+function gstNextInvoiceNo(){
+  // Same shape as the TXN-###### id, so a shop that already numbers bills this
+  // way keeps one continuous series. Series, if set, is prefixed on the invoice.
+  const n = String(nextSaleId || 1).padStart(6, '0');
+  const series = (document.getElementById('gstInvoiceSeries')?.value || '').trim();
+  return series ? series + n : 'TXN-' + n;
+}
+
+// Credit/debit notes have to point back at the invoice they adjust, and the
+// export/SEZ types need a payment flag for the GSTR-1 8A/8B breakup.
+// The reason list comes from config, so this block is re-rendered whenever the
+// document type OR the reason-code list changes — including the first render
+// landing before /gst/config has come back.
+function gstReasonCodes(){
+  const ex = (_gstCfg && _gstCfg.exemptions) || null;
+  return [].concat((ex && ex.nonGstReasons) || [], (ex && ex.nilRatedReasons) || []).join('|');
+}
+
+function gstDocExtrasHtml(){
+  const type = document.getElementById('gstDocType')?.value || 'tax_invoice';
+  let html = '';
+  if (type === 'credit_note' || type === 'debit_note'){
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="form-group" style="margin:0;">
+        <label>Against invoice no.</label>
+        <input id="gstLinkedInvoiceNo" placeholder="e.g. TXN-000123" style="width:100%;">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label>Reason</label>
+        <input id="gstNoteReason" placeholder="e.g. Return / rate correction" style="width:100%;">
+      </div></div>`;
+  }
+  if (type === 'export_invoice' || type === 'sez_invoice'){
+    html += `<div class="form-group" style="margin:0;">
+      <label>Payment status</label>
+      <select id="gstExportPaymentType" style="width:100%;">
+        <option value="">— select —</option>
+        <option value="WPAY">Paid</option>
+        <option value="WOPAY">Unpaid / to be paid</option>
+      </select></div>`;
+  }
+  // Non-GST, nil-rated and exempt supplies still have to reach the return, but
+  // they need a reason so the reviewer can tell an omission from an exemption.
+  html += `<div class="form-group" style="margin:8px 0 0;">
+    <label>Non-GST / nil / exempt reason <span style="color:var(--muted);font-size:10px;font-weight:400;white-space:nowrap;">(only if no tax charged)</span></label>
+    <input id="gstNonGstReason" list="gstReasonList" placeholder="Select or type a reason" style="width:100%;">
+    <datalist id="gstReasonList">${
+      (function(){
+        const ex = (_gstCfg && _gstCfg.exemptions) || null;
+        return [].concat((ex && ex.nonGstReasons) || [], (ex && ex.nilRatedReasons) || [])
+          .map((r) => `<option value="${r}"></option>`).join('');
+      })()
+    }</datalist></div>`;
+  return html;
+}
+
+/** Live summary under the block — the counter staff's sanity check before saving. */
+function gstRefreshBillMeta(){
+  const out = document.getElementById('gstBillMeta');
+  if (!out) return;
+  const box = document.getElementById('gstBillFields');
+  const extras = document.getElementById('gstDocExtras');
+  const type = document.getElementById('gstDocType')?.value || 'tax_invoice';
+  const reasonKey = gstReasonCodes();
+  if (extras && extras.dataset.for !== type + '|' + reasonKey){
+    const keep = document.getElementById('gstNonGstReason')?.value || '';
+    extras.innerHTML = gstDocExtrasHtml();
+    extras.dataset.for = type + '|' + reasonKey;
+    const again = document.getElementById('gstNonGstReason');
+    if (again && keep) again.value = keep;
+    // The export/SEZ payment select is created fresh each time, so let the
+    // custom-dropdown enhancer pick it up.
+    enhanceSelects();
+  }
+  if (!box || box.style.display === 'none'){ out.textContent = ''; return; }
+
+  const bits = [];
+  const typeMeta = gstDocTypes().find((d) => d.value === type);
+  bits.push(typeMeta ? typeMeta.label : type);
+  if (!typeMeta || typeMeta.inReturn){
+    bits.push(isIntrastate() ? 'Intra-state (CGST+SGST)' : 'Inter-state (IGST)');
+  }
+  const gstin = (document.getElementById('gstCustGstin')?.value || '').trim().toUpperCase();
+  const msg = document.getElementById('gstCustGstinMsg');
+  if (gstin){
+    const own = gstOwnStateCode();
+    const custState = gstin.slice(0, 2);
+    if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin)){
+      if (msg){ msg.textContent = '⚠ Does not look like a GSTIN — it will be reported as a validation warning.'; msg.style.color = 'var(--warn,#c47d00)'; }
+    } else if (own && custState !== own && isIntrastate()){
+      if (msg){ msg.textContent = `⚠ Buyer is in state ${custState} but this bill is placed as intra-state — pick the right place of supply so IGST is charged.`; msg.style.color = 'var(--warn,#c47d00)'; }
+    } else if (own && custState !== own){
+      if (msg){ msg.textContent = `Inter-state supply to state ${custState} — IGST applies.`; msg.style.color = 'var(--muted)'; }
+    } else if (msg){ msg.textContent = ''; }
+    bits.push(gstin);
+  } else if (msg){ msg.textContent = ''; bits.push('B2C (no GSTIN)'); }
+
+  if (document.getElementById('gstReverseCharge')?.checked) bits.push('Reverse charge');
+  const reason = (document.getElementById('gstNonGstReason')?.value || '').trim();
+  if (reason) bits.push(reason);
+  out.textContent = bits.join(' · ');
+}
+
+/** Fresh checkout = fresh GST document block. Collapsed, so the counter flow is unchanged. */
+function resetGstBillFields(){
+  const box = document.getElementById('gstBillFields');
+  const ch  = document.getElementById('gstDetailsChevron');
+  if (box){ box.style.display = 'none'; delete box.dataset.touched; }
+  if (ch) ch.textContent = '▾';
+  for (const id of ['gstInvoiceNo','gstInvoiceSeries','gstCustGstin','gstLinkedInvoiceNo','gstNoteReason','gstNonGstReason']){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const rc = document.getElementById('gstReverseCharge'); if (rc) rc.checked = false;
+  const msg = document.getElementById('gstCustGstinMsg'); if (msg) msg.textContent = '';
+  const out = document.getElementById('gstBillMeta'); if (out) out.textContent = '';
+  const ex  = document.getElementById('gstDocExtras'); if (ex) delete ex.dataset.for;
+  const dt  = document.getElementById('gstDocType'); if (dt){ dt.value = 'tax_invoice'; delete dt.dataset.filled; }
+  const pos = document.getElementById('gstPlaceOfSupply');
+  if (pos){ delete pos.dataset.touched; delete pos.dataset.stateCount; setGstPlaceOfSupply(''); }
+  gstLoadConfig().then(() => { gstRenderBillFields(); gstSyncPlaceOfSupply(); gstRefreshBillMeta(); });
+}
+
+/** Turn the billing form into the GST columns stored on the sale. */
+function gstBillDocMeta(){
+  const box = document.getElementById('gstBillFields');
+  const g = (id) => (document.getElementById(id)?.value || '').trim();
+  if (!box || box.style.display === 'none'){
+    // Nothing was filled in, but the report still needs to know the document is
+    // a finalised intra-state sale rather than a NULL.
+    return { docType:'tax_invoice', supplyType:'domestic', docStatus:'finalised',
+             placeOfSupply:'', isInterstate:!isIntrastate() };
+  }
+  const docType = g('gstDocType') || 'tax_invoice';
+  const typeMeta = gstDocTypes().find((d) => d.value === docType);
+  const inReturn = !typeMeta || typeMeta.inReturn;
+  const pos = g('gstPlaceOfSupply').toUpperCase();
+  const reason = g('gstNonGstReason');
+  return {
+    docType,
+    supplyType: docType === 'export_invoice' ? 'export'
+              : docType === 'sez_invoice' ? 'sez' : 'domestic',
+    docStatus: 'finalised',
+    invoiceNo: g('gstInvoiceNo') || (inReturn ? gstNextInvoiceNo() : ''),
+    invoiceSeries: g('gstInvoiceSeries').slice(0, 30),
+    custGstin: g('gstCustGstin').toUpperCase().slice(0, 15),
+    placeOfSupply: pos.slice(0, 2),
+    isInterstate: inReturn ? !isIntrastate() : false,
+    reverseCharge: !!document.getElementById('gstReverseCharge')?.checked,
+    linkedInvoiceNo: g('gstLinkedInvoiceNo').slice(0, 64),
+    noteReason: g('gstNoteReason'),
+    exportPaymentType: g('gstExportPaymentType'),
+    // A reason typed with no tax charged is the non-GST / nil / exempt signal;
+    // the engine reads it to fill the 3.1(c)/(e) and B2B Nil/Exempt tables.
+    nonGstReason: (!document.getElementById('applyTaxChk')?.checked || !cartHasTax()) ? reason : '',
+    nilRatedReason: reason,
+    exemptReason: reason,
+  };
+}
+
+/** True when any line on the cart actually carries a non-zero tax rate. */
+function cartHasTax(){
+  return (cart || []).some((i) => (i.gst || 0) > 0 || (i.cgst || 0) > 0 || (i.sgst || 0) > 0 || (i.igst || 0) > 0);
+}
 
 function geolocateCurrent(cb){
   if(!navigator.geolocation){ notify('Geolocation not supported','error'); return; }
@@ -2555,8 +2938,11 @@ function getCartTotals(){
     tax=cart.reduce((a,i)=>{
       const ep=i.customPrice!=null?i.customPrice:i.price;
       const amt=i.weightPerPrice>0?ep:ep*i.qty;
-      if(intra) return a+parseFloat((amt*(((i.cgst||0)+(i.sgst||0))/100)).toFixed(2));
-      return a+parseFloat((amt*((i.igst||0)/100)).toFixed(2));
+      // itemTaxRates derives the missing head from the combined rate. Reading
+      // i.igst directly charged zero IGST on inter-state sales because the
+      // product form only ever stores CGST+SGST.
+      const tr=itemTaxRates(i,intra);
+      return a+parseFloat((amt*((tr.cgst+tr.sgst+tr.igst)/100)).toFixed(2));
     },0);
   }
   const discountPct=Math.max(0,parseFloat(document.getElementById('cartDiscountPct')?.value)||0);
@@ -2579,8 +2965,8 @@ function updateTotals(){
     const itemGsts = cart.map(i=>{
       const ep=i.customPrice!=null?i.customPrice:i.price;
       const amt=i.weightPerPrice>0?ep:ep*i.qty;
-      if(intra) return parseFloat((amt*(((i.cgst||0)+(i.sgst||0))/100)).toFixed(2));
-      return parseFloat((amt*((i.igst||0)/100)).toFixed(2));
+      const tr=itemTaxRates(i,intra);
+      return parseFloat((amt*((tr.cgst+tr.sgst+tr.igst)/100)).toFixed(2));
     });
     tax = itemGsts.reduce((a,b)=>a+b,0);
     document.getElementById('taxAmt').textContent='₹'+fmt(tax);
@@ -2592,9 +2978,10 @@ function updateTotals(){
         if(!itemGsts[idx]) return '';
         const ep=i.customPrice!=null?i.customPrice:i.price;
         const amt=i.weightPerPrice>0?ep:ep*i.qty;
-        const cgstAmt=intra?parseFloat((amt*((i.cgst||0)/100)).toFixed(2)):0;
-        const sgstAmt=intra?parseFloat((amt*((i.sgst||0)/100)).toFixed(2)):0;
-        const igstAmt=!intra?parseFloat((amt*((i.igst||0)/100)).toFixed(2)):0;
+        const tr=itemTaxRates(i,intra);
+        const cgstAmt=intra?parseFloat((amt*(tr.cgst/100)).toFixed(2)):0;
+        const sgstAmt=intra?parseFloat((amt*(tr.sgst/100)).toFixed(2)):0;
+        const igstAmt=!intra?parseFloat((amt*(tr.igst/100)).toFixed(2)):0;
         const qtyStr=i.weightPerPrice>0?`${i.qty} gm`:`${i.qty}×₹${fmt(ep)}`;
         return `<div class="gst-breakdown-row"><span>${i.emoji} ${i.name} <span style="color:var(--muted);font-size:10px;">${qtyStr}</span></span><span style="color:var(--accent2);font-weight:600;font-size:11px;">CGST: ₹${fmt(cgstAmt)} · SGST: ₹${fmt(sgstAmt)} · IGST: ₹${fmt(igstAmt)}</span></div>`;
       }).join('')+`<div class="gst-breakdown-row"><span style="font-weight:600;">Total GST</span><span style="color:var(--accent);font-weight:700;">₹${fmt(tax)}</span></div>`;
@@ -2646,6 +3033,7 @@ function checkout(){
   const prev=document.getElementById('advancePayPreview'); if(prev) prev.style.display='none';
   _udhaarIncluded=false;
   comboClose('custNameWrap');
+  resetGstBillFields();
   updateCheckoutTotal();
   document.getElementById('checkoutModal').classList.add('open');
   setTimeout(()=>document.getElementById('custName').focus(),100);
@@ -2660,8 +3048,11 @@ function getCartTotal(){
     tax=cart.reduce((a,i)=>{
       const ep=i.customPrice!=null?i.customPrice:i.price;
       const amt=ep*i.qty;
-      if(intra) return a+(amt*(((i.cgst||0)+(i.sgst||0))/100));
-      return a+(amt*((i.igst||0)/100));
+      // Must go through itemTaxRates, not the raw cgst/sgst/igst columns. The
+      // product form stores CGST+SGST only, so reading igst directly charged
+      // ZERO tax on an inter-state sale while the receipt still printed IGST.
+      const tr=itemTaxRates(i,intra);
+      return a+(amt*((tr.cgst+tr.sgst+tr.igst)/100));
     },0);
   }
   return {sub,tax,total:sub+tax};
@@ -2677,9 +3068,12 @@ function getUdhaarPendingForCust(){
 function updateCheckoutTotal(){
   const {sub,tax,total}=getCartTotal();
   const intra=isIntrastate();
-  const cgstAmt=cart.reduce((a,i)=>{const ep=i.customPrice!=null?i.customPrice:i.price;const amt=i.weightPerPrice>0?ep:ep*i.qty;return a+(intra?parseFloat((amt*((i.cgst||0)/100)).toFixed(2)):0);},0);
-  const sgstAmt=cart.reduce((a,i)=>{const ep=i.customPrice!=null?i.customPrice:i.price;const amt=i.weightPerPrice>0?ep:ep*i.qty;return a+(intra?parseFloat((amt*((i.sgst||0)/100)).toFixed(2)):0);},0);
-  const igstAmt=cart.reduce((a,i)=>{const ep=i.customPrice!=null?i.customPrice:i.price;const amt=i.weightPerPrice>0?ep:ep*i.qty;return a+(!intra?parseFloat((amt*((i.igst||0)/100)).toFixed(2)):0);},0);
+  // Same source as getCartTotal() so the CGST/SGST/IGST breakdown always adds
+  // up to the total shown on the Confirm button.
+  const split=(head)=>cart.reduce((a,i)=>{const ep=i.customPrice!=null?i.customPrice:i.price;const amt=ep*i.qty;return a+parseFloat((amt*(itemTaxRates(i,intra)[head]/100)).toFixed(2));},0);
+  const cgstAmt=intra?split('cgst'):0;
+  const sgstAmt=intra?split('sgst'):0;
+  const igstAmt=intra?0:split('igst');
   const extraUd=_udhaarIncluded?getUdhaarPendingForCust():0;
   const grandTotal=total+extraUd;
   const applyTax=document.getElementById('applyTaxChk')?.checked;
@@ -3016,7 +3410,8 @@ function finalizeCheckout(){
           items:cart.map(i=>({name:i.name,qty:i.qty,price:i.customPrice!=null?i.customPrice:i.price,gst:i.gst||0,originalPrice:i.price,customPrice:i.customPrice!=null?i.customPrice:null,basePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.price:i.price;})(),overrideDisc:i.overrideDisc!=null?i.overrideDisc:null,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.purchasePrice||0:0;})()})),
           sub,tax,total,actualTotal:cartTotal,method:'Udhaar',amtPaid,pending:0,
           date:_localDateStr(),taxApplied:applyTax,payType:'paid',change:returnAmt>0?returnAmt:0,
-          discountPct:ct.discountPct, discount:ct.discount
+          discountPct:ct.discountPct, discount:ct.discount,
+          ...gstBillDocMeta()
         };
         sales.push(sale);
         deductCartStock();
@@ -3046,6 +3441,7 @@ function finalizeCheckout(){
     const saleId='TXN-'+String(nextSaleId++).padStart(6,'0');
     const custLocation=document.getElementById('cartCustLocation')?.value?.trim()||_userLocation;
     const intra=isIntrastate();
+    const gstMeta=gstBillDocMeta();
     const sale={
       id:saleId, customerName:custName||'Walk-in', customerPhone:custPhone,
       customerLocation:custLocation, intra,
@@ -3053,7 +3449,8 @@ function finalizeCheckout(){
       sub,tax,total,actualTotal,method,amtPaid,pending,
       date:_localDateStr(),taxApplied:applyTax,payType,
       udhaarIncluded:extraUd>0,extraUdhaarAmount:extraUd,change,
-      discountPct:ct.discountPct, discount:ct.discount
+      discountPct:ct.discountPct, discount:ct.discount,
+      ...gstMeta
     };
   sales.push(sale);
   deductCartStock();
@@ -3233,6 +3630,10 @@ function getBillText(sale){
     lines.push(`Customer: ${sale.customerName}${sale.customerPhone ? ' · ' + sale.customerPhone : ''}`);
   }
   lines.push(BILL_LINE);
+  // A GST invoice has to carry these on its face; without them the document is
+  // not a valid tax invoice even when the figures are right.
+  lines.push(...gstBillHeaderLines(sale));
+  lines.push(BILL_LINE);
   lines.push(padRow('S.No','Product','Price/pc','Qty','Tax(C/S/I)','Amount'));
   lines.push(BILL_LINE);
   let sno=1;
@@ -3266,6 +3667,50 @@ function getBillText(sale){
   lines.push('');
   lines.push('Thank you! Visit again 🙏');
   return lines.join('\n');
+}
+
+/**
+ * Tax-invoice face lines. Rules:
+ *  - Bill of Supply and anything not in a return gets no invoice numbering.
+ *  - A document that charges no tax but says nothing about why is not a valid
+ *    tax invoice either, so the reason is printed rather than left blank.
+ *  - The buyer's GSTIN and their state code (place of supply) are mandatory on
+ *    a B2B invoice and are what decides IGST vs CGST+SGST.
+ */
+function gstBillHeaderLines(sale){
+  const out = [];
+  const type = sale.docType || 'tax_invoice';
+  const typeMeta = gstDocTypes().find((d) => d.value === type);
+  const inReturn = !typeMeta || typeMeta.inReturn;
+  const label = typeMeta ? typeMeta.label : type;
+
+  if (!inReturn) return [`${label} · ${sale.id}`];
+
+  const invNo = (sale.invoiceNo || sale.id).slice(0, 64);
+  out.push(`${label} No: ${invNo}`);
+
+  const gstin = (sale.custGstin || '').trim().toUpperCase();
+  if (gstin) out.push(`Buyer GSTIN: ${gstin}`);
+  out.push(`Place of supply: ${(sale.placeOfSupply || gstOwnStateCode() || '—')}` +
+           (sale.isInterstate ? ' (inter-state)' : ' (intra-state)'));
+  if (sale.reverseCharge) out.push('Reverse charge applicable');
+
+  if (!sale.taxApplied || !cartHasTaxFor(sale)){
+    const why = sale.nonGstReason || sale.nilRatedReason || sale.exemptReason || 'No tax charged';
+    out.push(`Non-taxable supply: ${why}`);
+  }
+  if ((type === 'credit_note' || type === 'debit_note') && sale.linkedInvoiceNo){
+    out.push(`Against invoice: ${sale.linkedInvoiceNo}${sale.noteReason ? ' · ' + sale.noteReason : ''}`);
+  }
+  if (sale.exportPaymentType){
+    out.push(`Export payment: ${sale.exportPaymentType === 'WPAY' ? 'paid' : 'to be paid'}`);
+  }
+  return out;
+}
+
+/** Tax on any line of an already-saved sale (cartHasTax works on the live cart). */
+function cartHasTaxFor(sale){
+  return (sale.items || []).some((i) => (i.gst || 0) > 0 || (i.cgst || 0) > 0 || (i.sgst || 0) > 0 || (i.igst || 0) > 0);
 }
 
 function padRow(...cols){
@@ -5063,6 +5508,23 @@ function enhanceSelects(){
     if(sel.id==='ieTransportStatus') sel.addEventListener('change',function(){_transportManualStatus=true;});
   });
 }
+
+/**
+ * Tear down the custom dropdown wrapper for one <select> so enhanceSelects can
+ * rebuild it from the current options.
+ *
+ * enhanceSelects copies each option's text into a trigger element exactly once.
+ * If anything rewrites select.innerHTML afterwards — which the GST billing block
+ * does when /gst/config arrives — the visible label and the option list go stale,
+ * and picking from the stale list sets a value the select no longer has.
+ */
+function resetCustomSelect(sel){
+  if(!sel) return;
+  const wrap = document.getElementById(sel.id + '_w');
+  if(wrap) wrap.remove();
+  sel.style.display = '';
+  delete sel.dataset.enhanced;
+}
 document.addEventListener('click',function(e){
   if(!e.target.closest('.cust-sel-wrap')) document.querySelectorAll('.cust-sel-wrap.open').forEach(el=>el.classList.remove('open'));
 });
@@ -5594,9 +6056,16 @@ function finalizeAdvOrder(){
   const saleDate = o.packTime || _localDateStr();
   const sale={
     id:saleId,customerName:o.custName,customerPhone:o.phone||'',
-    items:o.items.map(i=>({name:i.productName,qty:i.qty,price:i.price,gst:0,cgst:0,sgst:0,igst:0,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.productId);return _p?_p.purchasePrice||0:0;})()})),
+    // Advance orders do not collect tax at the counter, but zeroing the rate here
+    // would make the GST engine read a genuinely taxable product as nil-rated.
+    // Carry the real rate through so the CRITICAL ""taxable item on a non-GST
+    // bill"" check fires instead of a silently wrong return.
+    items:o.items.map(i=>{const _p=products.find(x=>x.id===i.productId);return {name:i.productName,qty:i.qty,price:i.price,gst:(_p&&_p.gst)||0,cgst:(_p&&_p.cgst)||0,sgst:(_p&&_p.sgst)||0,igst:(_p&&_p.igst)||0,purchasePrice:(_p&&_p.purchasePrice)||0};}),
     sub:orderTotal,tax:0,total:orderTotal,method,amtPaid:totalPaid,pending,
-    date:saleDate,taxApplied:false,payType:pending>0?'partial':'paid'
+    date:saleDate,taxApplied:false,payType:pending>0?'partial':'paid',
+    // Advance-order bills keep the same document defaults as the checkout screen;
+    // the tax error is surfaced by validation rather than hidden here.
+    docType:'tax_invoice',supplyType:'domestic',docStatus:'finalised',isInterstate:!isIntrastate()
   };
   sales.push(sale);
   o.items.forEach(item=>{
@@ -7070,13 +7539,35 @@ function mapSale(s){
   const extraUd=Number(s.extra_udhaar_amount||0);
   let actualTotal=s.actual_total!=null?Number(s.actual_total):undefined;
   if(actualTotal==null) actualTotal=Number(s.sub)+Number(s.tax)+extraUd;
+  // `intra` used to be recomputed from the location box at billing time only, so a
+  // reloaded sale had no supply-type flag and the tax split came back wrong. It is
+  // now persisted as sales.is_interstate; derive the flag from whichever is set.
+  const interstate = s.is_interstate!=null ? !!s.is_interstate : !!(s.intra===false);
   return { id:s.id, customerName:s.customer_name||'', customerPhone:s.customer_phone||'',
+    customerLocation:s.customer_location||'', intra:!interstate, isInterstate:interstate,
     items:s.items||[], sub:Number(s.sub), tax:Number(s.tax), total:Number(s.total),
     method:s.method||'Cash', amtPaid:Number(s.amt_paid), pending:Number(s.pending||0),
     date:s.date, taxApplied:s.tax_applied||false, payType:s.pay_type||'paid',
     change:Number(s.change_return||0), udhaarIncluded:s.udhaar_included||false,
     extraUdhaarAmount:extraUd,
-    actualTotal, hidden:!!s.hidden };
+    actualTotal, hidden:!!s.hidden,
+    // ── GST document fields (see gst/classify.js normalizeSale) ──
+    docType:s.doc_type||'tax_invoice',
+    invoiceNo:s.invoice_no||'', invoiceSeries:s.invoice_series||'',
+    custGstin:s.cust_gstin||'',
+    placeOfSupply:s.place_of_supply||'',
+    supplyType:s.supply_type||'domestic',
+    docStatus:s.doc_status||'finalised',
+    cancelDate:s.cancel_date||null, cancelReason:s.cancel_reason||'',
+    reverseCharge:!!s.reverse_charge,
+    nilRatedReason:s.nil_rated_reason||'', exemptReason:s.exempt_reason||'',
+    nonGstReason:s.non_gst_reason||'',
+    linkedInvoiceNo:s.linked_invoice_no||'', linkedInvoiceId:s.linked_invoice_id||'',
+    linkedInvoiceDate:s.linked_invoice_date||null,
+    noteReason:s.note_reason||'', exportPaymentType:s.export_payment_type||'',
+    originalInvoiceNo:s.original_invoice_no||'',
+    originalInvoicePeriod:s.original_invoice_period||'',
+    amendmentReason:s.amendment_reason||'' };
 }
 function mapAdvance(o){
   return { id:o.id, custName:o.cust_name, phone:o.phone||'', packTime:o.pack_time,
@@ -7148,6 +7639,8 @@ async function loadAllData(){
       }
     }
     _dataLoaded = true;
+    // Reset the delta baseline so the next save sends only what actually changed
+    _syncPending = false; _syncSig = {};
     refreshCategoryDropdowns();
     renderCategories();
     renderInventory();
@@ -7732,7 +8225,7 @@ document.addEventListener('keydown', function(e){
   const shortcuts = {
     'd':'dashboard', 'b':'pos', 'a':'advance', 'u':'udhaar',
     'i':'inventory', 'c':'categories', 's':'sales', 'h':'invhistory',
-    'l':'customers', 'r':'reports',
+    'l':'customers', 'r':'reports', 'g':'gst',
     'x':'expenses', 'f':'defaults', 'n':'notes', 'q':'qr', 'z':'scanadd'
   };
   const key = e.key.toLowerCase();

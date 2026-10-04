@@ -6,7 +6,7 @@
   <title>ShopOS — Retail Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="leaflet.css?v=1">
-  <link rel="stylesheet" href="shopOS_style.css?v=23">
+  <link rel="stylesheet" href="shopOS_style.css?v=25">
 </head>
 <body>
 
@@ -143,6 +143,7 @@
     <div class="nav-item" data-page="invhistory"  onclick="navigate('invhistory')"><span class="icon">📋</span> Inventory History <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+H</kbd></div>
     <div class="nav-item" data-page="customers"   onclick="navigate('customers')"><span class="icon">📋</span> Customer Ledger <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+L</kbd></div>
 
+    <div class="nav-item" data-page="gst"         onclick="navigate('gst')"><span class="icon">🧾</span> GST &amp; Returns <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+G</kbd></div>
     <div class="nav-item" data-page="reports"     onclick="navigate('reports')"><span class="icon">📈</span> Reports <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+R</kbd></div>
     <div class="nav-item" data-page="expenses"    onclick="navigate('expenses')"><span class="icon">💸</span> Expenses <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+X</kbd></div>
     <div class="nav-item" data-page="defaults"    onclick="navigate('defaults')"><span class="icon">⚙️</span> By Default <kbd style="margin-left:auto;font-size:9px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--muted);">Alt+F</kbd></div>
@@ -387,6 +388,104 @@
       </div>
       <div id="udhaarWrap"></div>
     </div>
+
+    <!-- GST & RETURNS -->
+    <div class="page" id="page-gst">
+      <div class="page-header">🧾 GST &amp; Returns</div>
+      <div class="page-sub">GSTR-1, GSTR-3B and GSTR-2B reconciliation from your billing data.</div>
+
+      <!-- setup / config -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">⚙️ Business &amp; Filing Setup</div>
+        <div id="gstSetupWrap"><div class="empty-inline">Loading…</div></div>
+      </div>
+
+      <!-- period selector -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">📅 Return Period</div>
+        <div id="gstPeriodWrap"><div class="empty-inline">Loading…</div></div>
+      </div>
+
+      <!-- tabs -->
+      <div id="gstTabsWrap" style="display:none;">
+        <div class="gst-tabs" id="gstTabs"></div>
+
+        <div class="gst-tabpanel" id="gstTabOverview" data-tab="overview"></div>
+        <div class="gst-tabpanel" id="gstTabValidate" data-tab="validate" style="display:none;"></div>
+        <div class="gst-tabpanel" id="gstTabGstr1" data-tab="gstr1" style="display:none;"></div>
+        <div class="gst-tabpanel" id="gstTabGstr3b" data-tab="gstr3b" style="display:none;"></div>
+        <div class="gst-tabpanel" id="gstTabRecon" data-tab="recon" style="display:none;"></div>
+        <div class="gst-tabpanel" id="gstTabBooks" data-tab="books" style="display:none;"></div>
+        <div class="gst-tabpanel" id="gstTabFile" data-tab="file" style="display:none;"></div>
+      </div>
+
+      <!-- Advanced GST config -->
+      <div class="modal-bg" id="gstConfigModal">
+        <div class="modal" style="width:560px;">
+          <div class="modal-title">⚙️ Advanced GST Configuration</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+            Rates, thresholds, due dates and the JSON schema version live here — never in code.
+            Verify each value against the latest CBIC / GSTN notification.
+          </p>
+          <div class="gst-grid">
+            <div class="form-group"><label>B2C Large threshold (₹)</label>
+              <input id="gstCfgThreshold" type="number" min="0" step="1"></div>
+            <div class="form-group"><label>2B match tolerance (₹)</label>
+              <input id="gstCfgTolerance" type="number" min="0" step="0.01"></div>
+            <div class="form-group"><label>GSTR-1 due day</label>
+              <input id="gstCfgGstr1" type="number" min="1" max="31"></div>
+            <div class="form-group"><label>GSTR-3B due day</label>
+              <input id="gstCfgGstr3b" type="number" min="1" max="31"></div>
+            <div class="form-group" style="grid-column:1/-1;"><label>Rate slabs (comma separated)</label>
+              <input id="gstCfgRates" placeholder="0, 0.25, 3, 5, 12, 18, 28"></div>
+            <div class="form-group" style="grid-column:1/-1;"><label>GSTR-1 JSON schema version</label>
+              <input id="gstCfgSchema" placeholder="gstr1-offline-1.4"></div>
+            <div class="form-group" style="grid-column:1/-1;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="gstCfgEnforceChecksum">
+                Enforce the GSTIN check digit (blocks export on mismatch)
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+                Off by default — a wrong checksum would block a legitimate filing.
+              </div>
+            </div>
+          </div>
+          <div id="gstCfgMsg" style="font-size:12px;margin:10px 0;"></div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('gstConfigModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="gstSaveConfig()">Save config</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2B upload -->
+      <div class="modal-bg" id="gst2bModal">
+        <div class="modal" style="width:520px;">
+          <div class="modal-title">📤 Upload GSTR-2B</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:14px;">
+            Download the GSTR-2B JSON from the GST portal, then paste or upload it here.
+            Only credit for entries matched or accepted by you is claimed in Table 4.
+          </p>
+          <div class="form-row" style="margin-bottom:12px;">
+            <div class="form-group" style="flex:1;">
+              <label>JSON file</label>
+              <input type="file" id="gst2bFile" accept=".json,application/json" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);color:var(--text);">
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:12px;">
+            <div class="form-group" style="flex:1;">
+              <label>…or paste the JSON</label>
+              <textarea id="gst2bPaste" rows="6" placeholder='{"b2b":[…]}' style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--surface1);color:var(--text);font-family:monospace;font-size:12px;"></textarea>
+            </div>
+          </div>
+          <div id="gst2bMsg" style="font-size:12px;margin-bottom:10px;"></div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('gst2bModal')">Cancel</button>
+            <button class="btn btn-primary" onclick="gstUpload2B()">Upload &amp; Reconcile</button>
+          </div>
+        </div>
+      </div>
+        </div>
 
     <!-- REPORTS -->
     <div class="page" id="page-reports">
@@ -771,6 +870,46 @@
     <div class="form-group" style="margin-bottom:14px;">
       <label>Phone Number <span id="custPhoneReqMark" style="color:var(--muted);font-size:11px;">(optional)</span></label>
       <input id="custPhone" placeholder="e.g. 9876543210" type="tel" data-checkout-field="1" oninput="custPhoneInput()" onkeydown="checkoutFieldKeyNav(event,this)">
+    </div>
+
+    <!-- GST document details (collapsed by default — most bills need nothing here) -->
+    <div class="form-group" style="margin-bottom:12px;">
+      <button type="button" class="btn btn-ghost btn-sm" id="gstDetailsToggle" onclick="toggleGstBillFields()"
+        style="width:100%;justify-content:space-between;">
+        <span>🧾 GST document details <span style="color:var(--muted);font-weight:400;">(invoice no, GSTIN, place of supply)</span></span>
+        <span id="gstDetailsChevron">▾</span>
+      </button>
+      <div id="gstBillFields" style="display:none;margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface1);">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group" style="margin:0;">
+            <label>Document type</label>
+            <select id="gstDocType" style="width:100%;" onchange="onGstDocTypeChange()"></select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>Invoice number</label>
+            <input id="gstInvoiceNo" placeholder="auto" style="width:100%;" oninput="gstRefreshBillMeta()">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>Series <span style="color:var(--muted);font-size:10px;">(optional)</span></label>
+            <input id="gstInvoiceSeries" placeholder="e.g. SHOP/25-26/" maxlength="30" style="width:100;" oninput="gstRefreshBillMeta()">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label>Place of supply</label>
+            <select id="gstPlaceOfSupply" style="width:100%;" onchange="this.dataset.touched='1';gstRefreshBillMeta()"></select>
+          </div>
+        </div>
+        <div class="form-group" style="margin:8px 0 0;">
+          <label>Customer GSTIN <span style="color:var(--muted);font-size:10px;font-weight:400;white-space:nowrap;">(blank for B2C)</span></label>
+          <input id="gstCustGstin" maxlength="15" placeholder="22AAAAA0000A1Z5" autocapitalize="characters"
+            style="width:100%;text-transform:uppercase;" oninput="gstRefreshBillMeta()">
+          <div id="gstCustGstinMsg" style="font-size:11px;margin-top:3px;"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:9px;cursor:pointer;">
+          <input type="checkbox" id="gstReverseCharge" onchange="gstRefreshBillMeta()" style="width:auto;"> Reverse charge applicable (RCM)
+        </label>
+        <div id="gstDocExtras" style="margin-top:9px;"></div>
+      </div>
+      <div id="gstBillMeta" style="font-size:11px;color:var(--muted);margin-top:7px;"></div>
     </div>
 
     <!-- Udhaar warning for existing customers -->
@@ -1306,7 +1445,8 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=47"></script>
+<script src="shopOS_app.js?v=60"></script>
+<script src="gst_ui.js?v=4"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

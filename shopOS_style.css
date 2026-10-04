@@ -864,3 +864,81 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover{
   .qr-pill, .qr-remember-pill { transition: none; }
   .qr-pill:active { transform: none; }
 }
+
+/* -- GST & RETURNS ------------------------------------------------------------ */
+.gst-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;}
+.gst-tab{display:flex;align-items:center;gap:6px;padding:9px 14px;border-radius:8px;cursor:pointer;
+  font-size:13px;font-weight:600;color:var(--muted);background:var(--surface2);
+  border:1px solid var(--border);transition:all .15s;user-select:none;}
+.gst-tab:hover{color:var(--text);border-color:var(--accent);}
+.gst-tab.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 8px rgba(64,200,240,.25);}
+.gst-tab-badge{background:var(--surface1);color:var(--muted);border-radius:10px;padding:0 6px;font-size:10px;font-weight:700;line-height:16px;}
+.gst-tab.active .gst-tab-badge{background:rgba(255,255,255,.25);color:#fff;}
+.gst-tab-badge.bad{background:var(--red);color:#fff;}
+
+.gst-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.gst-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:14px;}
+
+.gst-table{width:100%;border-collapse:collapse;font-size:12px;}
+.gst-table th{text-align:left;padding:8px 10px;font-weight:700;color:var(--muted);
+  text-transform:uppercase;font-size:10px;letter-spacing:.8px;border-bottom:1px solid var(--border);}
+.gst-table td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+.gst-table .r{text-align:right;white-space:nowrap;}
+.gst-table tr:last-child td{border-bottom:none;}
+.gst-table-nested{margin-top:6px;opacity:.95;}
+.gst-doc-row td{background:var(--surface2);}
+.gst-total td{background:rgba(64,200,240,.08);font-weight:700;}
+.gst-table tr.row-blocker{background:rgba(239,68,68,.07);}
+.gst-table tr.row-warn{background:rgba(240,192,64,.07);}
+
+.gst-alert{padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:12px;line-height:1.6;border:1px solid;}
+.gst-alert ul{margin:6px 0 0 18px;}
+.gst-alert-ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.35);color:var(--green);}
+.gst-alert-warn,.gst-alert-warning{background:rgba(240,192,64,.1);border-color:rgba(240,192,64,.35);color:var(--accent);}
+.gst-alert-blocker{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);color:var(--red);}
+
+.gst-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.6px;background:var(--surface2);color:var(--muted);
+  border:1px solid var(--border);}
+.gst-badge-ok,.gst-badge-exported{background:rgba(34,197,94,.14);color:var(--green);border-color:rgba(34,197,94,.35);}
+.gst-badge-warning,.gst-badge-validated{background:rgba(240,192,64,.14);color:var(--accent);border-color:rgba(240,192,64,.35);}
+.gst-badge-blocker,.gst-badge-cancelled{background:rgba(239,68,68,.14);color:var(--red);border-color:rgba(239,68,68,.35);}
+.gst-badge-locked{background:rgba(120,120,140,.2);color:var(--muted);}
+.gst-badge-draft{background:var(--surface2);}
+
+.gst-period-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.gst-period-row select{min-width:200px;padding:10px 14px;font-size:15px;font-weight:600;
+  border:1px solid var(--border);border-radius:8px;background:var(--surface1);color:var(--text);}
+.gst-due-row{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);align-items:center;}
+.gst-due-row strong{color:var(--text);}
+.gst-note-inline{color:var(--accent);font-size:11px;}
+
+.gst-export-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;
+  padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;}
+.gst-schema-line{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+.gst-schema-line code{background:var(--surface1);padding:2px 6px;border-radius:4px;font-size:10px;}
+
+.gst-note{margin-top:12px;padding:10px 14px;background:var(--surface2);border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;font-size:11px;color:var(--muted);line-height:1.6;}
+.gst-note code{background:var(--surface1);padding:1px 5px;border-radius:4px;}
+
+.gst-flow{display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.gst-flow-step{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:74px;}
+.gst-flow-dot{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:800;background:var(--surface2);color:var(--muted);border:2px solid var(--border);}
+.gst-flow-step.done .gst-flow-dot{background:var(--green);color:#fff;border-color:var(--green);}
+.gst-flow-step.current .gst-flow-dot{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 4px rgba(64,200,240,.15);}
+.gst-flow-label{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);}
+.gst-flow-step.done .gst-flow-label{color:var(--text);}
+.gst-flow-line{width:22px;height:2px;background:var(--border);margin-bottom:16px;}
+
+.empty-inline{padding:20px;text-align:center;color:var(--muted);font-size:13px;}
+.gst-ok{border-color:var(--green) !important;}
+.gst-bad{border-color:var(--red) !important;}
+
+@media (max-width:760px){
+  .stats-row{grid-template-columns:repeat(2,1fr);}
+  .gst-grid{grid-template-columns:1fr;}
+  .gst-table{font-size:11px;}
+  .gst-table th,.gst-table td{padding:6px;}
+}
