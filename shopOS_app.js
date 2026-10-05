@@ -6169,12 +6169,20 @@ function finalizeAdvOrder(){
 // Profit helper: sum of (sellingPrice - purchasePrice) * qty for all sale items
 function calcProfit(salesArr){
   return salesArr.reduce((a,s)=>{
-    return a + s.items.reduce((b,i)=>{
+    // Per-line margin. A per-item discount is already carried in customPrice
+    // (overrideDisc is only the percentage label for it), so nothing extra is
+    // needed for those. Tax is deliberately excluded: it is collected for the
+    // government, not earned.
+    const lineProfit = s.items.reduce((b,i)=>{
       // Use stored purchasePrice from sale item (historical), or lookup from purchasePriceLog
       const cp = i.purchasePrice != null ? i.purchasePrice : getPurchasePriceAtDate(i.name, s.date);
       const sp = i.customPrice != null ? i.customPrice : i.price;
       return b + (sp - cp) * i.qty;
     }, 0);
+    // The bill-level discount comes off what the customer pays, so it comes off
+    // the margin too. It used to be ignored, so a 10% discount reported exactly
+    // the same profit as no discount while revenue dropped by the full amount.
+    return a + lineProfit - (Number(s.discount) || 0);
   }, 0);
 }
 
