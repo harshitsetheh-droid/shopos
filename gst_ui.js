@@ -26,8 +26,13 @@ function gstRs(paise){
   const n = Number(paise || 0);
   return '₹' + fmt(n / 100);
 }
-function gstQty(v){
-  const n = Number(v || 0);
+/** Sum paise values that may arrive as BigInt, Number or decimal string. */
+function gstSum(...vals){
+  let n = 0;
+  for (const v of vals){ const x = Number(v || 0); if (Number.isFinite(x)) n += x; }
+  return n;
+}
+function gstQty(v){  const n = Number(v || 0);
   return Number.isFinite(n) ? String(n) : '0';
 }
 function gstEscape(v){
@@ -765,16 +770,20 @@ function renderGstRecon(){
 
     <div class="card"><div class="card-title">Matching results</div>
       ${res.length ? `<table class="gst-table">
-        <thead><tr><th>Bucket</th><th>Supplier GSTIN</th><th>Invoice</th><th>Date</th><th class="r">Taxable</th><th class="r">Diff</th><th class="r">ITC</th><th>Decision</th><th>Action</th></tr></thead>
+        <thead><tr><th>Bucket</th><th>Supplier GSTIN</th><th>Invoice</th><th>Date</th><th class="r">Taxable</th><th class="r">Diff taxable</th><th class="r">Diff tax</th><th class="r">ITC</th><th>Decision</th><th>Action</th></tr></thead>
         <tbody>${res.map((r) => {
           const src = r.row2b || r.row || {};
+          // The tax difference is the sum of all four heads. Amounts reach the
+          // browser as BigInt-serialised strings, so sum via Number, not "+".
+          const diffTax = gstSum(r.diffIgstPaise, r.diffCgstPaise, r.diffSgstPaise, r.diffCessPaise);
           return `<tr>
             <td><span class="gst-badge gst-badge-${r.bucket === 'matched' ? 'ok' : (r.bucket === 'matched_tolerance' ? 'warning' : 'blocker')}">${gstEscape(r.bucket)}</span></td>
             <td>${gstEscape(src.gstin || '')}</td>
             <td>${gstEscape(src.invoiceNo || '')}</td>
             <td>${gstEscape(src.invoiceDate || '')}</td>
+            <td class="r">${gstRs(src.taxablePaise)}</td>
             <td class="r">${gstRs(r.diffTaxablePaise)}</td>
-            <td class="r">${gstRs(r.diffIgstPaise)}</td>
+            <td class="r">${gstRs(diffTax)}</td>
             <td class="r">${gstRs(r.itcPaise)}</td>
             <td><span class="gst-badge">${gstEscape(r.decision || 'pending')}</span></td>
             <td>
@@ -1032,14 +1041,39 @@ function gstExportExcel(){
   add('Validation', [['Severity','Code','Invoice','Customer','Issue','Fix'],
     ...d.validation.issues.map((i) => [i.severity, i.code, i.invoiceNo, i.customer, i.message, i.fix || ''])]);
 
-  add('2B Recon', [['Bucket','Supplier GSTIN','Invoice','Date','Diff Taxable','Diff IGST','ITC','Decision'],
+  add('2B Recon', [['Bucket','Supplier GSTIN','Invoice','Date','Taxable','Diff Taxable','Diff Tax','ITC','Decision'],
     ...d.recon2b.results.map((r) => {
       const s = r.row2b || r.row || {};
-      return [r.bucket, s.gstin||'', s.invoiceNo||'', s.invoiceDate||'', Number(r.diffTaxablePaise||0)/100, Number(r.diffIgstPaise||0)/100, Number(r.itcPaise||0)/100, r.decision||'pending'];
+      return [r.bucket, s.gstin||'', s.invoiceNo||'', s.invoiceDate||'',
+              gstSum(s.taxablePaise)/100, gstSum(r.diffTaxablePaise)/100,
+              gstSum(r.diffIgstPaise, r.diffCgstPaise, r.diffSgstPaise, r.diffCessPaise)/100,
+              gstSum(r.itcPaise)/100, r.decision||'pending'];
     })]);
 
-  XLSX.writeFile(wb, 'GSTR1_GSTR3B_' + _gst.period + '.xlsx');
+  const fileName = 'GSTR1_GSTR3B_' + _gst.period + '.xlsx';
+  XLSX.writeFile(wb, fileName);
+  gstRecordExport('excel', fileName, gstr1Counts(g));
   notify('Excel exported — review each sheet before filing');
+}
+
+/** Row counts per table, for the audit record. */
+function gstr1Counts(g){
+  return Object.entries({ b2b:g.b2b, b2cl:g.b2cl, b2cs:g.b2cs, nil_exempt:g.nil_exempt,
+    cdnr:g.cdnr, cdnur:g.cdnur, exp:g.exp, sez:g.sez, docsIssued:g.docs_issued, hsn:g.hsn && g.hsn.rows })
+    .map(([k, v]) => [k, (v || []).length]);
+}
+function gstr3bCounts(b){
+  return [['hsn', (b && b.hsn && b.hsn.rows || []).length]];
+}
+
+/** Record the download in the audit trail. Never block the export on it. */
+async function gstRecordExport(kind, fileName, rowCounts){
+  try {
+    await _api('/gst/export', {
+      method: 'POST',
+      body: JSON.stringify({ period: _gst.period, kind, fileName, rowCounts }),
+    });
+  } catch(e){ /* the file is already downloaded; a missing audit line is not worth blocking */ }
 }
 
 function gstExportJSON(){
@@ -1056,9 +1090,11 @@ function gstExportJSON(){
   }
   const blob = new Blob([JSON.stringify(d.portalJSON, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
+  const fileName = 'GSTR1_' + _gst.period + '_' + (d.schemaVersion || '') + '.json';
   a.href = URL.createObjectURL(blob);
-  a.download = 'GSTR1_' + _gst.period + '_' + (d.schemaVersion || '') + '.json';
+  a.download = fileName;
   a.click();
   URL.revokeObjectURL(a.href);
+  gstRecordExport('portal_json', fileName, gstr1Counts(d.gstr1));
   notify('JSON exported (schema ' + (d.schemaVersion || '') + ')');
 }

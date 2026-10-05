@@ -6,7 +6,7 @@
   <title>ShopOS — Retail Manager</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="leaflet.css?v=1">
-  <link rel="stylesheet" href="shopOS_style.css?v=25">
+  <link rel="stylesheet" href="shopOS_style.css?v=26">
 </head>
 <body>
 
@@ -1114,6 +1114,47 @@
       <div class="form-group"><label>Transport Paid (₹)</label><input id="ieTransportPaid" type="number" placeholder="0" min="0" step="0.01" oninput="updateTransportBillStatus()" onkeydown="if(event.key==='Enter')document.getElementById('ieTransportStatus').focus()"></div>
       <div class="form-group"><label>Transport Status</label><select id="ieTransportStatus"><option value="paid">Paid</option><option value="due">Due</option></select><div id="ieTransportBillInfo" style="font-size:11px;margin-top:3px;min-height:16px;"></div></div>
     </div>
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:14px;background:var(--surface1);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:12px;font-weight:600;">🧾 Purchase GST details <span style="color:var(--muted);font-weight:400;">(needed for 2B reconciliation &amp; ITC)</span></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="ieGstToggle" onclick="toggleIeGstFields()">Show</button>
+      </div>
+      <div id="ieGstFields" style="display:none;">
+        <div class="form-row cols-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+          <div class="form-group"><label>Supplier GSTIN</label><input id="ieSupplierGstin" maxlength="15" placeholder="27AAAAA0000A1Z5" style="text-transform:uppercase;" oninput="ieValidateSupplierGstin()"><div id="ieSupplierGstinMsg" style="font-size:11px;margin-top:3px;"></div></div>
+          <div class="form-group"><label>Supplier invoice no.</label><input id="ieSupplierInvoiceNo" placeholder="e.g. M/2026/0147" oninput="ieRefreshItcHint()"></div>
+          <div class="form-group"><label>Invoice date</label><input id="iePurchaseInvoiceDate" type="date" oninput="ieRefreshItcHint()"></div>
+          <div class="form-group"><label>Taxable value (₹)</label><input id="iePurchaseTaxable" type="number" placeholder="0.00" min="0" step="0.01" oninput="ieRefreshItcHint()"></div>
+        </div>
+        <div class="form-row cols-4" style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;">
+          <div class="form-group"><label>IGST (₹)</label><input id="iePurchaseIgst" type="number" placeholder="0.00" min="0" step="0.01" oninput="ieRefreshItcHint()"></div>
+          <div class="form-group"><label>CGST (₹)</label><input id="iePurchaseCgst" type="number" placeholder="0.00" min="0" step="0.01" oninput="ieRefreshItcHint()"></div>
+          <div class="form-group"><label>SGST (₹)</label><input id="iePurchaseSgst" type="number" placeholder="0.00" min="0" step="0.01" oninput="ieRefreshItcHint()"></div>
+          <div class="form-group"><label>Cess (₹)</label><input id="iePurchaseCess" type="number" placeholder="0.00" min="0" step="0.01" oninput="ieRefreshItcHint()"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:8px;cursor:pointer;">
+          <input type="checkbox" id="ieIsImport" style="width:auto;"> Import of goods (ITC only in 4(A)(1)(a))
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:6px;cursor:pointer;">
+          <input type="checkbox" id="ieReverseCharge" style="width:auto;"> Reverse charge — pay tax yourself (no 2B credit)
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12px;margin-top:6px;cursor:pointer;">
+          <input type="checkbox" id="ieItcEligible" checked style="width:auto;"> ITC claimable
+        </label>
+        <div class="form-group" style="margin:8px 0 0;display:none;" id="ieIneligibleWrap">
+          <label>Why ITC is not available <span style="color:var(--muted);font-size:10px;">(Section 17(5))</span></label>
+          <input id="ieIneligibleReason" list="ieIneligibleList" placeholder="e.g. Food, beverages, club membership">
+          <datalist id="ieIneligibleList">
+            <option value="Food, beverage and club membership"></option>
+            <option value="Motor vehicle for personal use"></option>
+            <option value="Goods lost, stolen, destroyed or written off"></option>
+            <option value="Goods used for personal consumption"></option>
+            <option value="Blocked credits under Section 17(5)"></option>
+          </datalist>
+        </div>
+        <div id="ieItcHint" class="gst-note" style="margin-top:10px;"></div>
+      </div>
+    </div>
     <div class="form-group" style="margin-bottom:14px;"><label>Notes (optional)</label><input id="ieNotes" placeholder="e.g. Monthly restocking"></div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
@@ -1445,8 +1486,8 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=60"></script>
-<script src="gst_ui.js?v=4"></script>
+<script src="shopOS_app.js?v=61"></script>
+<script src="gst_ui.js?v=9"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

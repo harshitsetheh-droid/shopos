@@ -205,6 +205,24 @@ async function waitForServer() {
     });
     check('config saved', r.status === 200, r.data.error || '');
 
+    // A download happens in the browser, so the audit trail only sees the file
+    // leaving the system if the client reports it. Check it is recorded, and
+    // that a bogus kind is rejected rather than silently logged.
+    r = await api('/gst/export', {
+      method: 'POST',
+      body: JSON.stringify({ period, kind: 'excel', fileName: 'GSTR1_test.xlsx', rowCounts: { b2b: 3 } }),
+    });
+    check('export is recorded in the audit trail', r.status === 200 && r.data.success, r.data.error || '');
+
+    r = await api('/gst/export', {
+      method: 'POST',
+      body: JSON.stringify({ period, kind: 'something-else' }),
+    });
+    check('export audit rejects an unknown kind', r.status === 400, r.data.error || '');
+
+    r = await api('/gst/export', { method: 'POST', body: JSON.stringify({ period: 'nope', kind: 'excel' }) });
+    check('export audit rejects a bad period', r.status === 400, r.data.error || '');
+
     // 14. cleanup
     r = await api('/delete-all', { method: 'POST', body: JSON.stringify({ password: PASS }) });
     check('cleanup', r.status === 200, r.data.error || '');

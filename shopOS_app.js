@@ -4613,6 +4613,7 @@ function openAddInvEntry(){
   ['ieSupplier','ieDestination','ieTransportProvider','ieTransportCost','ieTransportPaid','ieSupplierBill','ieSupplierBillPaid','ieParcelCount','ieNotes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['ieTransportStatus','ieSupplierBillStatus'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='paid';updateCustSelText(id);});
   _supplierManualStatus=false;_transportManualStatus=false;
+  resetIeGstFields();
   clearInvEntryPhoto();
   _invEntryRowCount=0;
   document.getElementById('invEntryRows').innerHTML='';
@@ -5245,7 +5246,27 @@ function saveInvEntry(){
     const expenseTitle=transportProvider?'Transport: '+transportProvider:'Transport';
     expenses.push({id:expId,name:expenseTitle,category:'Transport',amount:transportCost,date:nowDate,notes:'INV: '+invId+' · '+supplier,photo:transportBillPhoto});
   }
-  inventoryHistory.push({id:invId,date:nowDate,destination,parcelCount,supplier,supplierBill,supplierBillPaid,supplierBillStatus,supplierBillPhoto,transportProvider,transportCost,transportPaid,transportStatus,transportBillPhoto,transportCostExpenseId:expId,notes,items});
+  // ── Purchase GST fields (2B reconciliation + GSTR-3B Table 4) ──
+  const gnum=(id)=>{const v=parseFloat(document.getElementById(id)?.value);return isFinite(v)&&v>0?v:0;};
+  const supplierInvoiceNo=(document.getElementById('ieSupplierInvoiceNo')?.value||'').trim();
+  const supplierGstin=(document.getElementById('ieSupplierGstin')?.value||'').trim().toUpperCase();
+  const purchaseInvoiceDate=(document.getElementById('iePurchaseInvoiceDate')?.value)||null;
+  const purchaseTaxable=gnum('iePurchaseTaxable');
+  const purchaseIgst=gnum('iePurchaseIgst'), purchaseCgst=gnum('iePurchaseCgst'), purchaseSgst=gnum('iePurchaseSgst');
+  const purchaseCess=gnum('iePurchaseCess');
+  const isImport=!!document.getElementById('ieIsImport')?.checked;
+  const invReverseCharge=!!document.getElementById('ieReverseCharge')?.checked;
+  const itcEligible=document.getElementById('ieItcEligible')?.checked!==false;
+  const ineligibleReason=(document.getElementById('ieIneligibleReason')?.value||'').trim();
+
+  if ((purchaseTaxable||purchaseCgst||purchaseSgst||purchaseIgst) && !supplierInvoiceNo){
+    notify('Saved, but without the supplier invoice number this ITC cannot be matched to 2B','error');
+  }
+  inventoryHistory.push({id:invId,date:nowDate,destination,parcelCount,supplier,supplierBill,supplierBillPaid,supplierBillStatus,supplierBillPhoto,transportProvider,transportCost,transportPaid,transportStatus,transportBillPhoto,transportCostExpenseId:expId,notes,items,
+    supplierInvoiceNo,supplierGstin,
+    supplierStateCode:supplierGstin?supplierGstin.slice(0,2):'',
+    purchaseInvoiceDate,purchaseTaxable,purchaseCgst,purchaseSgst,purchaseIgst,purchaseCess,
+    isImport,reverseCharge:invReverseCharge,itcEligible,ineligibleReason});
   // persistent log — survives history deletion
   supplierTransportLog.push({date:nowDate,supplier,transportProvider,products:items.map(i=>({name:i.productName,qty:i.totalPcs}))});
   closeModal('invEntryModal'); renderInventoryHistory(); renderInventory();
@@ -7569,6 +7590,117 @@ function mapSale(s){
     originalInvoicePeriod:s.original_invoice_period||'',
     amendmentReason:s.amendment_reason||'' };
 }
+/**
+ * Normalise a purchase-register row from the DB into the camelCase shape the rest
+ * of the app uses. Without this, /load left these rows snake_case and the
+ * full-payload save (which reads camelCase only) wrote 0 into every GST amount on
+ * every save — silently wiping supplier GSTIN and the ITC heads.
+ */
+function mapInventoryHistory(h){
+  return {
+    id:h.id, date:h.date,
+    destination:h.destination||'', parcelCount:Number(h.parcel_count||0),
+    supplier:h.supplier||'',
+    supplierBill:Number(h.supplier_bill||0), supplierBillPaid:Number(h.supplier_bill_paid||0),
+    supplierBillStatus:h.supplier_bill_status||'paid',
+    transportProvider:h.transport_provider||'',
+    transportCost:Number(h.transport_cost||0), transportPaid:Number(h.transport_paid||0),
+    transportStatus:h.transport_status||'paid',
+    notes:h.notes||'', items:h.items||[],
+    // ── GST purchase fields (see gst/index.js normalisePurchase) ──
+    supplierInvoiceNo:h.supplier_invoice_no||'',
+    supplierGstin:h.supplier_gstin||'',
+    supplierStateCode:h.supplier_state_code||'',
+    purchaseInvoiceDate:h.purchase_invoice_date||null,
+    purchaseTaxable:Number(h.purchase_taxable||0),
+    purchaseCgst:Number(h.purchase_cgst||0),
+    purchaseSgst:Number(h.purchase_sgst||0),
+    purchaseIgst:Number(h.purchase_igst||0),
+    purchaseCess:Number(h.purchase_cess||0),
+    isImport:!!h.is_import,
+    reverseCharge:!!h.reverse_charge,
+    itcEligible:h.itc_eligible!==false,
+    ineligibleReason:h.ineligible_reason||'',
+    expenseId:h.expense_id||''
+  };
+}
+/**
+ * Purchase-side GST capture. The supplier's invoice number is what a 2B row is
+ * matched on, so without it the reconciliation tab matched nothing at all and
+ * looked like "no ITC available" rather than "no data captured".
+ */
+function toggleIeGstFields(){
+  const box = document.getElementById('ieGstFields');
+  const btn = document.getElementById('ieGstToggle');
+  if (!box) return;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  if (btn) btn.textContent = open ? 'Hide' : 'Show';
+  if (open) ieRefreshItcHint();
+}
+
+function ieValidateSupplierGstin(){
+  const el = document.getElementById('ieSupplierGstin');
+  const msg = document.getElementById('ieSupplierGstinMsg');
+  const v = (el?.value || '').trim().toUpperCase();
+  if (!v){ if (msg) msg.textContent = ''; return; }
+  if (!gstLoadConfig) return;
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(v)){
+    if (msg){ msg.textContent = '⚠ Does not look like a GSTIN — 2B will not match without it.'; msg.style.color = 'var(--warn,#c47d00)'; }
+    return;
+  }
+  const known = _gstStates[v.slice(0,2)];
+  if (msg){
+    msg.textContent = known ? `State ${v.slice(0,2)} — ${known}` : `⚠ Unknown state code ${v.slice(0,2)}`;
+    msg.style.color = known ? 'var(--muted)' : 'var(--warn,#c47d00)';
+  }
+}
+
+/** Cross-field check: the heads should add up to what is left after taxable. */
+function ieRefreshItcHint(){
+  const hint = document.getElementById('ieItcHint');
+  if (!hint) return;
+  const num = (id) => parseFloat(document.getElementById(id)?.value) || 0;
+  const taxable = num('iePurchaseTaxable');
+  const heads = num('iePurchaseIgst') + num('iePurchaseCgst') + num('iePurchaseSgst') + num('iePurchaseCess');
+  const invNo = (document.getElementById('ieSupplierInvoiceNo')?.value || '').trim();
+  const gstin = (document.getElementById('ieSupplierGstin')?.value || '').trim();
+  const bits = [];
+  if (!invNo) bits.push('⚠ Without the supplier invoice number this purchase cannot be matched to a 2B row, so its ITC stays unclaimed.');
+  if (!gstin) bits.push('⚠ Without the supplier GSTIN the same is true.');
+  if (taxable > 0 && heads === 0) bits.push('⚠ Taxable value entered but no tax heads — the ITC will show as zero.');
+  if (taxable > 0 && heads > 0){
+    const rate = (heads / taxable) * 100;
+    bits.push(`Effective rate ${rate.toFixed(2)}% · ITC ₹${fmt(heads)}`);
+    if (rate > 28.5) bits.push('⚠ Rate looks too high for a GST slab.');
+  }
+  const rc = document.getElementById('ieReverseCharge')?.checked;
+  if (rc) bits.push('Reverse charge: pay the tax yourself — no 2B credit for this entry.');
+  const imp = document.getElementById('ieIsImport')?.checked;
+  if (imp) bits.push('Import: reported under 4(A)(1)(a), not matched against 2B.');
+  const elig = document.getElementById('ieItcEligible')?.checked;
+  const reason = (document.getElementById('ieIneligibleReason')?.value || '').trim();
+  const wrap = document.getElementById('ieIneligibleWrap');
+  if (wrap) wrap.style.display = elig ? 'none' : 'block';
+  if (!elig && !reason) bits.push('⚠ ITC marked not claimable but no reason given.');
+  hint.innerHTML = bits.length ? bits.map((b) => `<div>${b}</div>`).join('') : '<div style="color:var(--green)">✓ Enough captured to reconcile this purchase against 2B.</div>';
+}
+
+/** Reset the purchase GST block whenever the entry modal opens. */
+function resetIeGstFields(){
+  for (const id of ['ieSupplierGstin','ieSupplierInvoiceNo','iePurchaseInvoiceDate','iePurchaseTaxable',
+                    'iePurchaseIgst','iePurchaseCgst','iePurchaseSgst','iePurchaseCess','ieIneligibleReason']){
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const imp = document.getElementById('ieIsImport'); if (imp) imp.checked = false;
+  const rc = document.getElementById('ieReverseCharge'); if (rc) rc.checked = false;
+  const el2 = document.getElementById('ieItcEligible'); if (el2) el2.checked = true;
+  const msg = document.getElementById('ieSupplierGstinMsg'); if (msg) msg.textContent = '';
+  const box = document.getElementById('ieGstFields'); if (box) box.style.display = 'none';
+  const btn = document.getElementById('ieGstToggle'); if (btn) btn.textContent = 'Show';
+}
+
 function mapAdvance(o){
   return { id:o.id, custName:o.cust_name, phone:o.phone||'', packTime:o.pack_time,
     advPaid:Number(o.adv_paid||0), notes:o.notes||'', items:o.items||[], total:Number(o.total),
@@ -7597,7 +7729,7 @@ async function loadAllData(){
       cgst:Number(p.cgst||0), sgst:Number(p.sgst||0), igst:Number(p.igst||0), unit:p.unit||'', weightPerPrice:Number(p.weight_per_price||0)
     }));
     if(data.sales) sales = data.sales.map(mapSale);
-    if(data.inventoryHistory) inventoryHistory = data.inventoryHistory;
+    if(data.inventoryHistory) inventoryHistory = data.inventoryHistory.map(mapInventoryHistory);
     if(data.udhaarRecords) udhaarRecords = data.udhaarRecords.map(mapUdhaar);
     if(data.advanceOrders) advanceOrders = data.advanceOrders.map(mapAdvance);
     _custPhoneCache={sig:'',map:null};

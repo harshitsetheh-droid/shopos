@@ -26,9 +26,26 @@ function normInvoiceNo(v, cfg) {
   return s;
 }
 
+/**
+ * Normalise a date to YYYY-MM-DD.
+ *
+ * GSTR-2B reports invoice dates as DD/MM/YYYY, which is not a date ISO accepts,
+ * so the original ISO-only regex silently produced an empty string for every
+ * real 2B row — dates showed blank throughout the reconciliation tab.
+ */
 function normDate(v) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
-  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+  const s = String(v || '').trim();
+  if (!s) return '';
+  let m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  // DD/MM/YYYY — the GSTR-2B format
+  m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/.exec(s);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  // DD-MM-YY
+  m = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/.exec(s);
+  if (m) return `20${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
 }
 
 /** Parse a GSTR-2B JSON export (accepts the common portal shapes). */
@@ -44,29 +61,69 @@ function parse2B(json, cfg) {
   // The portal wraps rows differently across versions — probe known keys.
   const candidates = (data && (data.b2b || data.ctin || data.invoice || data.data)) || [];
   const list = Array.isArray(candidates) ? candidates : (candidates && Array.isArray(candidates.items) ? candidates.items : []);
+  // GSTR-2B files in the wild use several spellings. The portal's own offline
+  // JSON uses taxval / iamt / camt / samt / csamt / cessamt; older extracts and
+  // hand-typed rows use taxableVal / igstAmt / cgstAmt / sgstAmt. Accept the union
+  // — reading only the second set silently reduced every real 2B row to zero, so
+  // nothing ever matched.
+  const pick = (row, ...keys) => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+    return 0;
+  };
   for (const r of list) {
     const gstin = String(r.ctin || r.gstin || r.supplierGstin || '').toUpperCase().trim();
-    const invNo = String(r.inv || r.invoiceNumber || r.invoice_no || r.invNo || '');
+    // inum is the portal's own spelling of the invoice number; without it every
+    // 2B row had an empty invoice number and could never match the books.
+    const invNo = String(pick(r, 'inum', 'inv', 'invNo', 'invoiceNumber', 'invoice_no') || '');
     const invDate = normDate(r.idt || r.invoiceDate || r.invdt || r.date);
-    const invType = String(r.ity || r.invoiceType || 'R').toUpperCase(); // R=regular, D=debit, C=credit
-    const invVal = toPaise(String(r.val || r.invoiceValue || 0));
-    const taxable = toPaise(String(r.taxableVal || r.taxable || 0));
-    const igst = toPaise(String(r.igstAmt || r.igst || 0));
-    const cgst = toPaise(String(r.cgstAmt || r.cgst || 0));
-    const sgst = toPaise(String(r.sgstAmt || r.sgst || 0));
-    const cess = toPaise(String(r.cessAmt || r.cess || 0));
+    const invType = String(r.ity || r.invoiceType || r.inv_typ || r.invty || 'R').toUpperCase(); // R=regular, D=debit, C=credit
+    const invVal = toPaise(String(pick(r, 'val', 'invoiceValue', 'invVal')));
+    const taxable = toPaise(String(pick(r, 'taxval', 'taxableVal', 'taxable', 'taxableValue')));
+    const igst = toPaise(String(pick(r, 'iamt', 'igstAmt', 'igst')));
+    const cgst = toPaise(String(pick(r, 'camt', 'cgstAmt', 'cgst')));
+    const sgst = toPaise(String(pick(r, 'samt', 'sgstAmt', 'sgst')));
+    const cess = toPaise(String(pick(r, 'cessamt', 'cessAmt', 'cess')));
+    const itcClaimed = String(r.itcAvlbl || r.itcAvailable || '').toUpperCase();
     if (!gstin && !invNo) continue;
     rows.push({
       gstin, invoiceNo: invNo, normNo: normInvoiceNo(invNo, config), invoiceDate: invDate,
       invoiceType: invType,
       invoiceValuePaise: invVal, taxablePaise: taxable,
       igstPaise: igst, cgstPaise: cgst, sgstPaise: sgst, cessPaise: cess,
-      itcClaimed: !(invType === 'D'),   // debit notes cannot be claimed as ITC
+      // A debit note cannot be claimed as ITC. Where the file states ITC
+      // availability, respect it — the portal marks ineligible rows explicitly.
+      itcClaimed: itcClaimed
+        ? itcClaimed === 'Y'
+        : invType !== 'D',
       period: String(r.irt || r.filingPeriod || r.period || '').trim(),
       filingDate: normDate(r.fdt || ''),
     });
   }
   return rows;
+}
+
+/**
+ * Turn previously-parsed rows back into the BigInt shape reconcile2B expects.
+ *
+ * parse2B output cannot survive a JSONB round trip: BigInt is not JSON, so it is
+ * written out as a decimal string. Feeding those strings straight back in made
+ * reconcile2B evaluate "80000" - 80000n and throw. Prefer re-parsing the stored
+ * payload (see the /api/gst/2b route); this exists for rows saved the old way.
+ */
+function rehydrate2BRows(rows) {
+  return (rows || []).map((r) => ({
+    ...r,
+    invoiceValuePaise: nz(r.invoiceValuePaise),
+    taxablePaise: nz(r.taxablePaise),
+    igstPaise: nz(r.igstPaise),
+    cgstPaise: nz(r.cgstPaise),
+    sgstPaise: nz(r.sgstPaise),
+    cessPaise: nz(r.cessPaise),
+    itcClaimed: r.itcClaimed !== false,
+  }));
 }
 
 /**
@@ -94,7 +151,11 @@ function reconcile2B(books, twoB, cfg, decisions) {
   const tolerance = config.reconciliation.toleranceRupees;
 
   // ── 2B rows → match against books ───────────────────────────────────────
-  for (const r of twoB || []) {
+  // nz() every amount on both sides. These rows travel through JSONB and the
+  // client, so they can arrive as BigInt, Number or a decimal string; mixing two
+  // of those throws and takes the whole return build down with it.
+  for (const raw of twoB || []) {
+    const r = rehydrate2BRows([raw])[0];
     const k = matchKey(r.gstin, r.normNo, config);
     const b = bIndex.get(k);
     if (!b) {
@@ -130,6 +191,8 @@ function reconcile2B(books, twoB, cfg, decisions) {
       bucket: 'missing_in_2b', side: 'books', row: b, key: k,
       diffTaxablePaise: -nz(b.taxablePaise),
       diffIgstPaise: -nz(b.igstPaise),
+      diffCgstPaise: -nz(b.cgstPaise),
+      diffSgstPaise: -nz(b.sgstPaise),
       itcAtRiskPaise: nz(b.igstPaise) + nz(b.cgstPaise) + nz(b.sgstPaise),
     });
   }
@@ -198,6 +261,14 @@ function claimRow(summary, r, tax) {
   summary.claimableByHead.cgst += nz(src.cgstPaise);
   summary.claimableByHead.sgst += nz(src.sgstPaise);
   summary.claimableByHead.cess += nz(src.cessPaise);
+
+  // Split into the GSTR-3B Table 4(A) buckets. Accumulated here, alongside the
+  // claim itself, so the buckets can never drift from the claimed total.
+  // Import of goods → 4(A)(1)(a); reverse charge → 4(A)(5); everything else 4(A)(7).
+  const bk = r.rowBooks || null;
+  if (bk && bk.isImport) summary.table4.importGoods += tax;
+  else if (bk && bk.reverseCharge) summary.table4.rcm += tax;
+  else summary.table4.others += tax;
 }
 
 function itcOf(r) {
@@ -223,10 +294,29 @@ function emptySummary() {
     missingInBooks: 0, missingIn2B: 0, pending: 0,
     claimable: ZERO, itcAtRisk: ZERO,
     claimableByHead: { igst: ZERO, cgst: ZERO, sgst: ZERO, cess: ZERO },
+    // GSTR-3B Table 4(A) buckets for the accepted credit. sum of these === claimable.
+    table4: {
+      importGoods: ZERO,   // 4(A)(1)(a) import of goods
+      importServices: ZERO, // 4(A)(1)(b) — not derived from a purchase register
+      rcm: ZERO,           // 4(A)(5) inward supplies on reverse charge
+      isd: ZERO,           // 4(A)(6) credit received from ISD
+      others: ZERO,        // 4(A)(7) all other ITC
+    },
   };
 }
 
-function nz(v) { return typeof v === 'bigint' ? v : BigInt(v || 0); }
+/**
+ * Coerce anything to BigInt paise. Rows reach this module as BigInt, as Numbers,
+ * and as decimal strings (parse2B output cannot survive a JSONB round trip), so
+ * every amount is funnelled through here rather than assumed.
+ */
+function nz(v) {
+  if (typeof v === 'bigint') return v;
+  if (v === null || v === undefined || v === '') return 0n;
+  if (typeof v === 'number') return Number.isFinite(v) ? BigInt(Math.round(v)) : 0n;
+  const n = Number(String(v).trim());
+  return Number.isFinite(n) ? BigInt(Math.round(n)) : 0n;
+}
 
 // ── Part 6: Books vs Return ─────────────────────────────────────────────────
 
@@ -325,6 +415,7 @@ function annualTurnover(docs, cfg, asOfDate) {
 
 module.exports = {
   parse2B,
+  rehydrate2BRows,
   reconcile2B,
   reconcileBooksVsReturn,
   annualTurnover,

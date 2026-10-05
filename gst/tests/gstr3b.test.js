@@ -4,7 +4,9 @@ const assert = require('node:assert');
 const { normalizeSale, buildMasterIndex } = require('../classify');
 const { buildGSTR1 } = require('../gstr1');
 const { buildGSTR3B, applySetOff } = require('../gstr3b');
-const { cfg, sale, line, products, GSTIN_MH } = require('./fixtures');
+const { buildReturn } = require('../index');
+const { parse2B } = require('../reconcile');
+const { cfg, sale, line, products, GSTIN_MH, GSTIN_KA } = require('./fixtures');
 
 const idx = buildMasterIndex(products);
 const docs = (rows) => rows.map((r) => normalizeSale(r, cfg, idx));
@@ -52,6 +54,76 @@ test('3B outward ties to GSTR-1 (balanced = true)', () => {
   assert.strictEqual(g3.tieOut.checked, true);
   assert.strictEqual(g3.tieOut.balanced, true,
     `expected tie-out, diff taxable=${g3.tieOut.diffTaxablePaise} diff igst=${g3.tieOut.diffIgstPaise}`);
+});
+
+// Regression: the tie-out counted 3.1(e) non-GST supplies on the GSTR-1 side only
+// (they live inside nil_exempt there) and omitted them from the 3B side, so every
+// period containing a non-GST bill reported a false imbalance. A correct return
+// must never look unbalanced — that trains the filer to ignore the check.
+test('the tie-out stays balanced when the period contains a non-GST supply', () => {
+  const d = docs([
+    sale({ id: 'TXN-1', invoice_no: 'A/001', cust_gstin: GSTIN_MH }),
+    sale({ id: 'TXN-2', invoice_no: 'N/001', tax_applied: false,
+      items: [line({ gst: 0, cgst: 0, sgst: 0, igst: 0, isNonGst: true })],
+      sub: 100, tax: 0, total: 100 }),
+  ]);
+  const g1 = buildGSTR1(d, cfg, { period: '2026-08' });
+  const g3 = buildGSTR3B(d, {}, {}, g1, cfg);
+  assert.ok(g3.t31.e_non_gst.taxablePaise > 0n, 'precondition: the bill is non-GST');
+  assert.strictEqual(g3.tieOut.diffTaxablePaise, 0n, `diff=${g3.tieOut.diffTaxablePaise}`);
+  assert.strictEqual(g3.tieOut.balanced, true);
+});
+
+test('the tie-out stays balanced with an export and a credit note together', () => {
+  const d = docs([
+    sale({ id: 'TXN-1', invoice_no: 'E/001', doc_type: 'export_invoice', supply_type: 'export',
+      place_of_supply: '96', is_interstate: true, export_payment_type: 'WPAY',
+      items: [line({ gst: 0, cgst: 0, sgst: 0, igst: 5 })] }),
+    sale({ id: 'CN-1', doc_type: 'credit_note', invoice_no: 'CN/001', cust_gstin: GSTIN_MH,
+      linked_invoice_no: 'A/001', items: [line({ qty: 1 })] }),
+    sale({ id: 'TXN-3', invoice_no: 'A/003' }),
+  ]);
+  const g1 = buildGSTR1(d, cfg, { period: '2026-08' });
+  const g3 = buildGSTR3B(d, {}, {}, g1, cfg);
+  assert.strictEqual(g3.tieOut.balanced, true,
+    `diff taxable=${g3.tieOut.diffTaxablePaise} diff igst=${g3.tieOut.diffIgstPaise}`);
+});
+
+// ── end-to-end: reconciliation credit must actually reach Table 4 ──────────
+// buildReturn passes recon.summary.table4 into buildGSTR3B. When that mapping was
+// missing, reconciliation happily accepted credit and GSTR-3B still reported zero
+// available ITC — the shop would file a return claiming nothing.
+test('reconciliation credit flows through buildReturn into Table 4', () => {
+  const sales = [{
+    id: 'TXN-1', invoice_no: 'A/001', cust_gstin: GSTIN_MH, place_of_supply: '27',
+    is_interstate: false, doc_type: 'tax_invoice', status: 'finalised',
+    date: '2026-08-03', tax_applied: true, pay_type: 'paid',
+    items: [{ name: 'Rice', qty: 1, price: 1000, gst: 18, cgst: 9, sgst: 9, igst: 0, hsn: '1006' }],
+    sub: 1000, tax: 180, total: 1180,
+  }];
+  const purchases = [{
+    supplier_gstin: GSTIN_KA, supplier_invoice_no: 'P/001', date: '2026-08-05',
+    purchase_taxable: 500, purchase_cgst: 45, purchase_sgst: 45,
+    is_import: false, reverse_charge: false, itc_eligible: true,
+  }];
+  const twoBPayload = {
+    b2b: [{ ctin: GSTIN_KA, inum: 'P/001', idt: '05/08/2026', val: 590, taxval: 500, camt: 45, samt: 45 }],
+  };
+  const out = buildReturn({
+    sales, products, purchases, cfg, period: '2026-08',
+    recon2B: parse2B(twoBPayload, cfg),
+  });
+  assert.strictEqual(out.recon2b.summary.claimable, 9000n, 'precondition: ₹90 accepted');
+  assert.strictEqual(out.gstr3b.table4.eligible.others, 9000n, '₹90 must appear under 4(A)(7)');
+  assert.strictEqual(out.gstr3b.table4.netAvailable, 9000n);
+  assert.strictEqual(out.gstr3b.creditAvail.cgst, 4500n);
+  assert.strictEqual(out.gstr3b.creditAvail.sgst, 4500n);
+  // Sale liability ₹180 = CGST ₹90 + SGST ₹90. Credit is ₹45 each, so ₹45 of
+  // each head stays payable and the IGST head is untouched.
+  assert.strictEqual(out.gstr3b.setOff.payable.cgst, 4500n);
+  assert.strictEqual(out.gstr3b.setOff.payable.sgst, 4500n);
+  assert.strictEqual(out.gstr3b.setOff.payable.igst, 0n);
+  assert.strictEqual(out.gstr3b.setOff.consumed.cgst, 4500n);
 });
 
 // ── set-off order ───────────────────────────────────────────────────────────

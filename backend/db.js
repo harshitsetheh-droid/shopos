@@ -264,6 +264,9 @@ async function initDB() {
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_location TEXT DEFAULT ''`);
 
     // Purchases: supplier GSTIN + ITC heads, needed for GSTR-2B reconciliation
+    // The supplier's own invoice number. Without it a purchase row cannot be
+    // matched to its 2B line, so reconciliation silently matched nothing.
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_invoice_no VARCHAR(64) DEFAULT ''`);
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_gstin VARCHAR(15) DEFAULT ''`);
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_state_code VARCHAR(2) DEFAULT ''`);
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_invoice_date TIMESTAMP DEFAULT NULL`);

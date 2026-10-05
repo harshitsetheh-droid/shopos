@@ -271,13 +271,14 @@ app.post('/api/save', authMiddleware, async (req, res) => {
       for (const h of inventoryHistory) {
         await client.query(
           `INSERT INTO inventory_history (id, account_id, date, supplier, transport, notes, items,
-              supplier_gstin, supplier_state_code, purchase_invoice_date, purchase_taxable,
+              supplier_invoice_no, supplier_gstin, supplier_state_code, purchase_invoice_date, purchase_taxable,
               purchase_cgst, purchase_sgst, purchase_igst, purchase_cess,
               is_import, reverse_charge, itc_eligible, ineligible_reason, expense_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
            ON CONFLICT (id,account_id) DO UPDATE SET
               date=EXCLUDED.date, supplier=EXCLUDED.supplier, transport=EXCLUDED.transport,
               notes=EXCLUDED.notes, items=EXCLUDED.items,
+              supplier_invoice_no=EXCLUDED.supplier_invoice_no,
               supplier_gstin=EXCLUDED.supplier_gstin, supplier_state_code=EXCLUDED.supplier_state_code,
               purchase_invoice_date=EXCLUDED.purchase_invoice_date, purchase_taxable=EXCLUDED.purchase_taxable,
               purchase_cgst=EXCLUDED.purchase_cgst, purchase_sgst=EXCLUDED.purchase_sgst,
@@ -287,12 +288,19 @@ app.post('/api/save', authMiddleware, async (req, res) => {
               expense_id=EXCLUDED.expense_id`,
           [String(h.id).slice(0,50), aid, h.date||new Date(), String(h.supplier||'').slice(0,255),
             Math.max(0,parseFloat(h.transport)||0), String(h.notes||'').slice(0,1000), JSON.stringify(h.items||[]),
-            String(h.supplierGstin||'').slice(0,15), String(h.supplierStateCode||'').slice(0,2),
-            h.purchaseInvoiceDate||null, Math.max(0,parseFloat(h.purchaseTaxable)||0),
-            Math.max(0,parseFloat(h.purchaseCgst)||0), Math.max(0,parseFloat(h.purchaseSgst)||0),
-            Math.max(0,parseFloat(h.purchaseIgst)||0), Math.max(0,parseFloat(h.purchaseCess)||0),
-            !!h.isImport, !!h.reverseCharge, h.itcEligible!==false, String(h.ineligibleReason||''),
-            String(h.expenseId||'').slice(0,50)]
+            String(pick(h,'supplier_invoice_no','supplierInvoiceNo','')).slice(0,64),
+            String(pick(h,'supplier_gstin','supplierGstin','')).slice(0,15),
+            String(pick(h,'supplier_state_code','supplierStateCode','')).slice(0,2),
+            pick(h,'purchase_invoice_date','purchaseInvoiceDate',null),
+            Math.max(0,parseFloat(pick(h,'purchase_taxable','purchaseTaxable',0))||0),
+            Math.max(0,parseFloat(pick(h,'purchase_cgst','purchaseCgst',0))||0),
+            Math.max(0,parseFloat(pick(h,'purchase_sgst','purchaseSgst',0))||0),
+            Math.max(0,parseFloat(pick(h,'purchase_igst','purchaseIgst',0))||0),
+            Math.max(0,parseFloat(pick(h,'purchase_cess','purchaseCess',0))||0),
+            !!(pick(h,'is_import','isImport',false)), !!pick(h,'reverse_charge','reverseCharge',false),
+            pick(h,'itc_eligible','itcEligible',true)!==false,
+            String(pick(h,'ineligible_reason','ineligibleReason','')),
+            String(pick(h,'expense_id','expenseId','')).slice(0,50)]
         );
       }
     }
@@ -469,7 +477,8 @@ const DELTA_TABLES = {
                        export_payment_type: '', original_invoice_no: '', original_invoice_period: '',
                        amendment_reason: '', customer_location: '',
                      }, push: 'sales' },
-  inventoryHistory:{ table: 'inventory_history', cols: ['id','date','supplier','transport','notes','items','supplier_gstin','supplier_state_code','purchase_invoice_date','purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess','is_import','reverse_charge','itc_eligible','ineligible_reason','expense_id'], push: 'inventoryHistory' },
+  inventoryHistory:{ table: 'inventory_history', cols: ['id','date','supplier','transport','notes','items','supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date','purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess','is_import','reverse_charge','itc_eligible','ineligible_reason','expense_id'],
+                      defaults: { supplier_invoice_no:'', supplier_gstin:'', supplier_state_code:'' }, push: 'inventoryHistory' },
   udhaarRecords:   { table: 'udhaar_records',  cols: ['id','name','phone','reference','bills','total_bill','total_paid','total_pending','credit'], push: 'udhaarRecords' },
   advanceOrders:   { table: 'advance_orders',  cols: ['id','cust_name','phone','pack_time','adv_paid','notes','items','total','status','sale_id','transport','tax_applied','transport_cost','addl_paid','bills','location'], push: 'advanceOrders' },
   notes:           { table: 'notes',           cols: ['id','title','content','updated_at'], push: 'notes' },
@@ -491,6 +500,16 @@ function toRow(rec, cols) {
   }
   return out;
 }
+
+// Accept either the DB column name or the client-side camelCase form. The
+// full-payload path reads only camelCase below, so a record that arrived
+// snake_case (anything straight from /load, which has no mapper for this table)
+// silently wrote 0 into every GST amount on every save.
+const pick = (rec, snake, camel, dflt) => {
+  if (rec[snake] !== undefined && rec[snake] !== null && rec[snake] !== '') return rec[snake];
+  if (rec[camel] !== undefined && rec[camel] !== null && rec[camel] !== '') return rec[camel];
+  return dflt;
+};
 
 async function applyDelta(client, aid, changed) {
   for (const [name, spec] of Object.entries(DELTA_TABLES)) {
@@ -668,11 +687,21 @@ app.get('/api/gst/return/:period', authMiddleware, async (req, res) => {
     const decisions = new Map();
     for (const d of decR.rows) decisions.set(d.match_key, d.decision);
 
-    // the uploaded 2B rows, if any
+    // The uploaded 2B payload, re-parsed on every build so the rows are always
+    // fresh BigInt paise. raw.rows is the older stored-parsed-rows shape; accept
+    // it by re-normalising the amounts.
     let twoBRows = [];
     for (const row of reconR.rows) {
       const raw = row.raw || {};
-      if (Array.isArray(raw.rows)) twoBRows = twoBRows.concat(raw.rows);
+      if (raw.payload) {
+        try {
+          twoBRows = twoBRows.concat(gstEngine.parse2B(raw.payload, cfg));
+        } catch (e) {
+          console.error('GST 2B re-parse failed:', e.message);
+        }
+      } else if (Array.isArray(raw.rows)) {
+        twoBRows = twoBRows.concat(gstEngine.rehydrate2BRows(raw.rows));
+      }
     }
 
     const out = gstEngine.buildReturn({
@@ -867,6 +896,27 @@ app.post('/api/gst/status/:period', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/gst/export — record that a file was actually handed over.
+// The download itself happens in the browser, so without this the audit trail only
+// showed the workflow moving through "exported" and not which artefact left the
+// system. Row counts are recorded so a reviewer can tell one file from another.
+app.post('/api/gst/export', authMiddleware, async (req, res) => {
+  const aid = req.user.id;
+  const { period = '', kind = '', fileName = '', rowCounts = {} } = req.body || {};
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM' });
+  const allowed = ['excel', 'portal_json'];
+  if (!allowed.includes(kind)) return res.status(400).json({ error: 'kind must be excel or portal_json' });
+  try {
+    await audit(aid, period, `export.${kind}`, `Exported ${kind === 'excel' ? 'Excel workbook' : 'portal JSON'} (${fileName})`, {
+      fileName, rowCounts,
+    });
+    res.json({ success: true });
+  } catch (e) {
+    // Never let auditing block a download, but say so.
+    res.status(500).json({ error: 'Could not record the export' });
+  }
+});
+
 // POST /api/gst/2b — store an uploaded GSTR-2B file for a period
 app.post('/api/gst/2b', authMiddleware, async (req, res) => {
   const aid = req.user.id;
@@ -874,8 +924,14 @@ app.post('/api/gst/2b', authMiddleware, async (req, res) => {
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM' });
   try {
     const cfg = (await loadGstConfig(aid)).cfg;
-    // parse2B returns integer paise (BigInt) — stringify via serialise() so the
-    // payload round-trips without losing precision.
+    // Validate the payload now so a bad file is rejected at upload time, but
+    // store the ORIGINAL payload rather than the parsed rows.
+    //
+    // The parsed rows hold BigInt paise, which cannot round-trip through JSONB —
+    // serialise() turns them into strings, and re-reading them on the next build
+    // made reconcile2B do "80000" - 80000n, throwing on every subsequent request.
+    // Re-parsing the stored payload keeps exactly one parse path and leaves the
+    // file's actual contents on record for audit.
     const rows = gstEngine.parse2B(payload, cfg);
     await pool.query(
       `INSERT INTO gst_recon_2b (account_id, period, match_key, bucket, decision, note,
@@ -887,7 +943,7 @@ app.post('/api/gst/2b', authMiddleware, async (req, res) => {
       [aid, period,
         gstEngine.matchKey(rows.length ? rows[0].gstin : '', '', cfg) + '|' + '__file__',
         'uploaded', 'pending', '', '', '', null, 0, 0, 0, 0, 0,
-        JSON.stringify(serialise({ rows }))],
+        JSON.stringify({ payload })],
     );
     await audit(aid, period, 'recon2b.upload', `Uploaded GSTR-2B (${rows.length} rows)`, { rows: rows.length });
     res.json({ success: true, rows: rows.length });

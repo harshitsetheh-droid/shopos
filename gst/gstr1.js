@@ -171,8 +171,12 @@ function buildGSTR1(docs, cfg, opts) {
         placeOfSupply: doc.placeOfSupply,
         rate: rateKey(doc.lines[0]?.ratePct || 0),
         taxablePaise: ZERO, igstPaise: ZERO, cessPaise: ZERO,
-        // with/without payment — from config
-        paymentType: doc.raw?.exportPaymentType || config.exports.withoutPayment,
+        // with/without payment. Accept the DB column name or the client-side
+        // camelCase form, like every other field in normalizeSale — reading only
+        // the camelCase key silently reported every export as WOPAY, because the
+        // return is built from the raw DB rows.
+        paymentType: String(doc.raw?.export_payment_type || doc.raw?.exportPaymentType || '')
+          || config.exports.withoutPayment,
       };
       for (const l of doc.lines) { row.taxablePaise += l.taxablePaise * sign; row.igstPaise += l.igstPaise * sign; }
       const target = doc.supplyType === 'sez' ? out.sez : out.exp;
@@ -256,12 +260,20 @@ function buildGSTR1(docs, cfg, opts) {
 
 /** Sum one document's line amounts with a sign. */
 function sumRow(doc, sign) {
+  const taxable = sumPaise(doc.lines.map((l) => l.taxablePaise));
+  const cgst = sumPaise(doc.lines.map((l) => l.cgstPaise));
+  const sgst = sumPaise(doc.lines.map((l) => l.sgstPaise));
+  const igst = sumPaise(doc.lines.map((l) => l.igstPaise));
+  const cess = sumPaise(doc.lines.map((l) => l.cessPaise));
   return {
-    totalTaxablePaise: sumPaise(doc.lines.map((l) => l.taxablePaise)) * sign,
-    totalCgstPaise: sumPaise(doc.lines.map((l) => l.cgstPaise)) * sign,
-    totalSgstPaise: sumPaise(doc.lines.map((l) => l.sgstPaise)) * sign,
-    totalIgstPaise: sumPaise(doc.lines.map((l) => l.igstPaise)) * sign,
-    totalCessPaise: sumPaise(doc.lines.map((l) => l.cessPaise)) * sign,
+    totalTaxablePaise: taxable * sign,
+    totalCgstPaise: cgst * sign,
+    totalSgstPaise: sgst * sign,
+    totalIgstPaise: igst * sign,
+    totalCessPaise: cess * sign,
+    // Gross value of the note, matching what invoiceValuePaise means on a
+    // regular invoice, so the portal JSON can reuse one field name.
+    totalInvoicePaise: (taxable + cgst + sgst + igst + cess) * sign,
   };
 }
 

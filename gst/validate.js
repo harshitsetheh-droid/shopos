@@ -7,7 +7,7 @@
 const { DEFAULT_CONFIG } = require('./config');
 const { toPaise, fmtPaise } = require('./money');
 const { validateGSTIN, stateCodeOf } = require('./gstin');
-const { classifySupply, findSuspiciousNonGstLines } = require('./classify');
+const { classifySupply, findSuspiciousNonGstLines, NON_RETURN_DOC_TYPES } = require('./classify');
 
 const BLOCKER = 'BLOCKER';
 const WARNING = 'WARNING';
@@ -68,6 +68,19 @@ function validateForFiling(docs, ctx) {
 
   for (const doc of docs) {
     const n = doc.invoiceNo;
+
+    // A GST rate of 0 is correct — not missing — on a supply the counter actually
+    // declared nil-rated / exempt / non-GST, and on a document that is not in a
+    // return at all (estimates, delivery challans). Demanding a rate there buried
+    // the real blockers under noise on every period that contained one.
+    //
+    // This must NOT be keyed off classifySupply: for a genuinely taxable line
+    // whose rate was simply never set, classifySupply deliberately falls through
+    // to 'non_gst' and leaves flagging it to THIS rule. Keying off it would switch
+    // the check off for exactly the case it exists to catch.
+    const declaredNonTaxable = doc.lines.every((l) => l.isNil || l.isExempt || l.isNonGst)
+      || !!(doc.nilRatedReason || doc.exemptReason || doc.nonGstReason);
+    const rateRequired = !NON_RETURN_DOC_TYPES.has(doc.docType) && !declaredNonTaxable;
 
     // ── Locked / filed period documents ──────────────────────────────────
     if (locked.has(doc.period)) {
@@ -148,7 +161,7 @@ function validateForFiling(docs, ctx) {
       }
 
       // missing GST rate on a taxable line
-      if (!l.isNil && !l.isExempt && !l.isNonGst && l.taxablePaise > 0n
+      if (rateRequired && !l.isNil && !l.isExempt && !l.isNonGst && l.taxablePaise > 0n
         && Number(l.ratePct) === 0 && l.masterRate === 0) {
         issues.push(issue(BLOCKER, 'RATE_MISSING',
           `${n}: item "${l.name}" has no GST rate set.`, doc,

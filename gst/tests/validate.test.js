@@ -35,6 +35,50 @@ test('no drift warning when stored and recomputed agree', () => {
 });
 
 const blockers = (r) => r.blockers.map((i) => i.code);
+const has = (r, code) => blockers(r).includes(code);
+
+// Product 3 in the master has gst 0, so a line named after it is genuinely
+// non-taxable and will not trip Core Rule 3 (NON_GST_BUT_TAXABLE_ITEM). Use it
+// whenever the point of the test is the rate rule and not Core Rule 3.
+const NON_TAXABLE_ITEM = { name: 'Wheat (unprocessed)', hsn: '1001', uqc: 'NOS', qty: 10, price: 10,
+  gst: 0, cgst: 0, sgst: 0, igst: 0 };
+
+// A rate of 0 is CORRECT on a supply the counter declared nil-rated / exempt /
+// non-GST, and on a document that is not in a return at all. Flagging it as
+// RATE_MISSING buried the real blockers under noise on any period containing one.
+test('a supply declared nil / exempt / non-GST is not blocked for having no rate', () => {
+  const exempt = V([sale({ items: [{ ...NON_TAXABLE_ITEM, isExempt: true }], tax: 0, total: 100 })]);
+  assert.ok(!has(exempt, 'RATE_MISSING'), blockers(exempt).join(','));
+
+  const nil = V([sale({ items: [{ ...NON_TAXABLE_ITEM, isNil: true }], tax: 0, total: 100 })]);
+  assert.ok(!has(nil, 'RATE_MISSING'), blockers(nil).join(','));
+
+  const nonGst = V([sale({ tax_applied: false, items: [{ ...NON_TAXABLE_ITEM, isNonGst: true }],
+    sub: 100, tax: 0, total: 100 })]);
+  assert.ok(!has(nonGst, 'RATE_MISSING'), blockers(nonGst).join(','));
+});
+
+test('a non-GST bill that records a reason is not blocked for having no rate', () => {
+  const r = V([sale({ tax_applied: false, items: [NON_TAXABLE_ITEM],
+    sub: 100, tax: 0, total: 100, non_gst_reason: 'Pure agricultural produce' })]);
+  assert.ok(!has(r, 'RATE_MISSING'), blockers(r).join(','));
+});
+
+test('an estimate is not blocked for having no GST rate (it is not in a return)', () => {
+  const r = V([sale({ doc_type: 'estimate', items: [NON_TAXABLE_ITEM], tax: 0, total: 100 })]);
+  assert.ok(!has(r, 'RATE_MISSING'), blockers(r).join(','));
+  // it must still be called out as a non-return document
+  assert.ok(has(r, 'NON_RETURN_DOC_PRESENT'), blockers(r).join(','));
+});
+
+// The case the rule exists for: tax was applied but the rate was never set, with
+// nothing declaring the supply nil / exempt / non-GST. classifySupply calls this
+// 'non_gst' and leaves it to the validator, so the check must not be keyed off
+// classifySupply or it would never fire.
+test('a taxable line with no rate and no declaration is still a BLOCKER', () => {
+  const r = V([sale({ items: [NON_TAXABLE_ITEM], tax: 0, total: 100 })]);
+  assert.ok(has(r, 'RATE_MISSING'), blockers(r).join(','));
+});
 const warnings = (r) => r.warnings.map((i) => i.code);
 
 test('clean data passes with zero blockers', () => {

@@ -128,6 +128,41 @@ const P = (n) => ({ id: n, name: 'P' + n, price: 10 * n, stock: n, catId: 1, emo
     check('customer_location round-trips',
       bare && bare.customer_location === '', `got=${bare && bare.customer_location}`);
 
+    // Purchases: the full-payload save reads camelCase only, and /load has no
+    // mapper for this table, so a snake_case row silently wrote 0 into every GST
+    // amount on every save. Send the raw DB shape and require it to survive.
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      delta: { mode: 'delta', changed: { inventoryHistory: { upserts: [{
+        id: 'INV-900', date: new Date().toISOString(), supplier: 'Mohan Distributors',
+        supplier_invoice_no: 'M/2026/0147', supplier_gstin: '27AABCD1234E1Z5',
+        supplier_state_code: '27', purchase_taxable: 800, purchase_cgst: 20,
+        purchase_sgst: 20, purchase_igst: 0, purchase_cess: 0,
+        is_import: false, reverse_charge: false, itc_eligible: true, ineligible_reason: '',
+        items: [{ name: 'Parle-G 20g', qty: 100, purchasePrice: 8 }],
+      }], deletes: [] } } },
+    }) });
+    r = await api('/load');
+    const inv = (r.data.inventoryHistory || []).find((x) => x.id === 'INV-900');
+    check('purchase GST fields persist in the delta path',
+      inv && inv.supplier_invoice_no === 'M/2026/0147' && inv.supplier_gstin === '27AABCD1234E1Z5',
+      inv ? `${inv.supplier_invoice_no}/${inv.supplier_gstin}` : 'missing');
+    check('purchase ITC heads persist',
+      inv && Number(inv.purchase_taxable) === 800 && Number(inv.purchase_cgst) === 20 && Number(inv.purchase_sgst) === 20,
+      inv ? `${inv.purchase_taxable}/${inv.purchase_cgst}/${inv.purchase_sgst}` : 'missing');
+
+    // Now the full-payload save, sending the shape /load hands back (snake_case).
+    // This is the case that used to wipe the values.
+    const raw = Object.assign({}, inv);
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      categories: [], products: [], sales: [], inventoryHistory: [raw],
+      udhaarRecords: [], advanceOrders: [], notes: [], expenses: [],
+    }) });
+    r = await api('/load');
+    const inv2 = (r.data.inventoryHistory || []).find((x) => x.id === 'INV-900');
+    check('purchase GST fields survive a full-payload save of a DB-shaped row',
+      inv2 && inv2.supplier_invoice_no === 'M/2026/0147' && Number(inv2.purchase_taxable) === 800,
+      inv2 ? `${inv2.supplier_invoice_no}/${inv2.purchase_taxable}` : 'missing');
+
     // noop delta is harmless
     r = await api('/save', { method: 'POST', body: JSON.stringify({ delta: { mode: 'noop' } }) });
     check('noop delta tolerated', r.status === 200, r.data.error || '');

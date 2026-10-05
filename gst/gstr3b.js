@@ -192,17 +192,20 @@ function tieToGSTR1(t31, gstr1) {
     + sumBig(g.cdnr, 'totalTaxablePaise') + sumBig(g.cdnur, 'totalTaxablePaise');
   const gstr1NilExempt = sumBig(g.nil_exempt, 'taxablePaise');
 
-  // 3.1(e) Non-GST outward supplies are part of the 3B outward total but have no
-  // counterparty table in GSTR-1, so include them on the GSTR-1 side of the
-  // comparison instead of dropping them from either side.
-  const t3bTaxable = t31.a_taxable.taxablePaise + t31.b_zero_rated.taxablePaise + t31.d_reverse_charge.taxablePaise;
+  // 3.1(e) Non-GST outward supplies ARE part of the 3B outward total, and on the
+  // GSTR-1 side they already sit inside nil_exempt. They have to appear on BOTH
+  // sides or the tie-out reports a false difference for every period containing a
+  // non-GST bill — which is exactly the "Core Rule 2 supplies are included" case.
+  const t3bTaxable = t31.a_taxable.taxablePaise + t31.b_zero_rated.taxablePaise
+    + t31.d_reverse_charge.taxablePaise + t31.e_non_gst.taxablePaise;
   const t3bNilExempt = t31.c_nil_exempt.taxablePaise;
 
   const gstr1Igst = sumBig(g.b2b, 'totalIgstPaise') + sumBig(g.b2cl, 'totalIgstPaise')
     + sumBig(g.b2cs, 'igstPaise') + sumBig(g.exp, 'igstPaise') + sumBig(g.sez, 'igstPaise')
     + sumBig(g.cdnr, 'totalIgstPaise') + sumBig(g.cdnur, 'totalIgstPaise')
     + sumBig(g.nil_exempt, 'igstPaise');   // non-GST rows carry no IGST, kept for symmetry
-  const t3bIgst = t31.a_taxable.igstPaise + t31.b_zero_rated.igstPaise + t31.d_reverse_charge.igstPaise;
+  const t3bIgst = t31.a_taxable.igstPaise + t31.b_zero_rated.igstPaise
+    + t31.d_reverse_charge.igstPaise + t31.e_non_gst.igstPaise;   // non-GST rows carry no IGST
 
   const diffTaxable = gstr1Taxable + gstr1NilExempt - (t3bTaxable + t3bNilExempt);
   const diffIgst = gstr1Igst - t3bIgst;

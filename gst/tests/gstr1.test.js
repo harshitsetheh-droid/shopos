@@ -124,6 +124,26 @@ test('zero-rated export goes to the exports table, not B2C', () => {
   assert.ok(g.exp[0].igstPaise > 0n);
 });
 
+// The return is built from raw DB rows, so snake_case is the shape that matters.
+// This used to read only the camelCase key and reported every export as WOPAY,
+// which puts paid exports into the wrong GSTR-1 8A/8B box on a real filing.
+test('export payment status is read from the DB column name', () => {
+  const paid = build([sale({ supply_type: 'export', place_of_supply: '96', is_interstate: true,
+    export_payment_type: cfg.exports.withPayment })]);
+  assert.strictEqual(paid.exp[0].paymentType, 'WPAY');
+});
+
+test('export payment status also accepts the client-side camelCase form', () => {
+  const paid = build([sale({ supply_type: 'export', place_of_supply: '96', is_interstate: true,
+    exportPaymentType: 'WPAY' })]);
+  assert.strictEqual(paid.exp[0].paymentType, 'WPAY');
+});
+
+test('an export with no recorded payment status falls back to the config default', () => {
+  const g = build([sale({ supply_type: 'export', place_of_supply: '96', is_interstate: true })]);
+  assert.strictEqual(g.exp[0].paymentType, cfg.exports.withoutPayment);
+});
+
 test('Documents Issued reports from/to numbers per series', () => {
   const g = build([
     sale({ id: 'TXN-1', invoice_no: 'SI/001' }),

@@ -15,6 +15,18 @@ const { toRupees } = require('./money');
 const rs = (paise) => Number(toRupees(paise || 0).toFixed(2));
 
 /**
+ * Absolute value of a paise amount.
+ *
+ * These are BigInt, and Math.abs() throws on BigInt. `x || 0` is not a safe
+ * fallback either: 0n is falsy, so it would silently swap a BigInt for a Number
+ * and corrupt any later arithmetic.
+ */
+function absPaise(p) {
+  if (p === undefined || p === null) return 0;
+  return p < 0 ? -p : p;
+}
+
+/**
  * Convert the engine's GSTR-1 object into the portal JSON structure.
  */
 function toPortalJSON(g1, cfg, meta) {
@@ -103,8 +115,9 @@ function toPortalJSON(g1, cfg, meta) {
       nt_num: r.noteNumber,
       nt_dt: r.noteDate,
       ntty: r.noteType,
-      val: rs(Math.abs(r.totalTaxablePaise || 0) + Math.abs(r.totalCgstPaise || 0)
-        + Math.abs(r.totalSgstPaise || 0) + Math.abs(r.totalIgstPaise || 0)),
+      // Gross note value. These are BigInt paise — Math.abs on a BigInt throws,
+      // which broke the whole return build for any period containing a note.
+      val: rs(absPaise(r.totalInvoicePaise)),
       pos: r.placeOfSupply,
       rchrg: 'N',
       inv_typ: r.noteType === 'C' ? 'C' : 'D',
@@ -118,7 +131,7 @@ function toPortalJSON(g1, cfg, meta) {
       typ: r.noteType === 'C' ? 'C' : 'D',
       nt_num: r.noteNumber,
       nt_dt: r.noteDate,
-      val: rs(Math.abs(r.totalTaxablePaise || 0)),
+      val: rs(absPaise(r.totalInvoicePaise)),
       pos: r.placeOfSupply,
       rchrg: 'N',
       items: (r.rateBreakup || []).map((b) => ({

@@ -22,7 +22,7 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
   const invCols = await q(`
     SELECT column_name FROM information_schema.columns
     WHERE table_name='inventory_history'
-      AND column_name IN ('supplier_gstin','supplier_state_code','purchase_invoice_date',
+      AND column_name IN ('supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date',
                           'purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess',
                           'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id')
     ORDER BY column_name`);
@@ -57,7 +57,7 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
       'nil_rated_reason','exempt_reason','non_gst_reason','linked_invoice_no','linked_invoice_id',
       'linked_invoice_date','note_reason','export_payment_type','original_invoice_no',
       'original_invoice_period','amendment_reason','customer_location'],
-    'inventory_history columns': ['supplier_gstin','supplier_state_code','purchase_invoice_date',
+    'inventory_history columns': ['supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date',
       'purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess',
       'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id'],
     'products columns': ['sac','uqc','is_nil','is_exempt','exempt_reason'],

@@ -58,7 +58,10 @@ function buildReturn(input) {
   const g3b = gstr3b.buildGSTR3B(
     taxDocs,
     {
-      ...recon.summary,
+      // Reconcile's Table 4(A) split. Without this, Table 4 came out at zero even
+      // when reconciliation had accepted credit — the claimed ITC never reached
+      // the return.
+      ...(recon.summary.table4 || {}),
       creditByHead: recon.summary.claimableByHead,
     },
     input.manual3B || {},
@@ -93,19 +96,23 @@ function buildReturn(input) {
 
 /** Map a persisted purchase row into the ITC shape. */
 function normalisePurchase(p) {
-  const num = (v) => money.toPaise(String(v || 0));
+  const num = (v) => money.toPaise(String(v == null ? 0 : v));
+  // The DB columns are purchase_*; these used to read the unprefixed names only,
+  // so every CGST/SGST/IGST amount on a purchase was read as zero and every 2B
+  // row showed a phantom tax difference. Accept both spellings.
+  const head = (a, b) => (p[a] != null && p[a] !== '' ? p[a] : p[b]);
   return {
-    key: `${String(p.supplier_gstin || '').toUpperCase()}|${reconcile.normInvoiceNo(p.supplier_bill || '')}`,
+    key: `${String(p.supplier_gstin || '').toUpperCase()}|${reconcile.normInvoiceNo(p.supplier_invoice_no || p.supplier_invoice_number || p.supplierInvoiceNo || '')}`,
     gstin: String(p.supplier_gstin || '').toUpperCase(),
-    invoiceNo: String(p.supplier_bill || ''),
+    invoiceNo: String(p.supplier_invoice_no || p.supplier_invoice_number || p.supplierInvoiceNo || ''),
     date: p.date,
     supplier: String(p.supplier || ''),
     // purchases store tax as a lump sum; split when the row carries heads
     taxablePaise: num(p.purchase_taxable != null ? p.purchase_taxable : p.supplier_bill_total),
-    igstPaise: num(p.igst),
-    cgstPaise: num(p.cgst),
-    sgstPaise: num(p.sgst),
-    cessPaise: num(p.cess),
+    igstPaise: num(head('purchase_igst', 'igst')),
+    cgstPaise: num(head('purchase_cgst', 'cgst')),
+    sgstPaise: num(head('purchase_sgst', 'sgst')),
+    cessPaise: num(head('purchase_cess', 'cess')),
     isImport: !!p.is_import,
     reverseCharge: !!p.reverse_charge,
     itcEligible: p.itc_eligible !== false,
