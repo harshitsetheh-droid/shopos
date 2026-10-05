@@ -68,7 +68,11 @@ function normalizeSale(s, cfg, productIndex) {
   const config = cfg || DEFAULT_CONFIG;
   const homeState = String(config.business.stateCode || '');
   const docType = String(s.doc_type || s.docType || 'tax_invoice');
-  const status = String(s.status || DOC_STATUS.FINALISED).toLowerCase();
+  // The DB column is doc_status and the client sends docStatus; `status` is the
+  // older/hand-written spelling. Reading only `status` meant a genuinely
+  // cancelled invoice was normalised as finalised and its value went straight
+  // into the B2B/B2C totals.
+  const status = String(s.doc_status || s.docStatus || s.status || DOC_STATUS.FINALISED).toLowerCase();
 
   const custGstin = String(s.cust_gstin || s.customerGstin || '').trim().toUpperCase();
   const gstCheck = validateGSTIN(custGstin, config);
@@ -107,7 +111,7 @@ function normalizeSale(s, cfg, productIndex) {
     const gross = Number(it.customPrice != null ? it.customPrice : it.price) || 0;
     const qty = Number(it.qty) || 0;
     const taxable = toPaise(String(gross * qty));
-    const taxApplied = !!s.tax_applied;
+    const taxApplied = !!(s.tax_applied !== undefined ? s.tax_applied : s.taxApplied);
     const isNil = !!it.isNil || !!it.nilRated;
     const isExempt = !!it.isExempt || !!it.exempt;
     const isNonGst = !!it.isNonGst || !!it.nonGst;

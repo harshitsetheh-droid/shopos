@@ -95,6 +95,34 @@ test('cancelled invoices are excluded from tax tables but counted as cancelled',
   assert.ok(series.cancelledNumbers.includes('A/002'));
 });
 
+// Regression: the DB column is doc_status and the client sends docStatus, but
+// normalizeSale only read `status`. Every cancelled invoice in a real return was
+// therefore normalised as finalised and its value went into the B2B/B2C totals.
+// The test above used the `status` spelling, which is why it passed.
+test('doc_status and docStatus are both honoured for cancellation', () => {
+  for (const shape of [{ doc_status: 'cancelled' }, { docStatus: 'cancelled' }]) {
+    const d = normalizeSale(sale({ id: 'B', invoice_no: 'B/001', ...shape }), cfg, idx);
+    assert.strictEqual(d.isCancelled, true, JSON.stringify(shape));
+    const g = buildGSTR1([
+      normalizeSale(sale({ id: 'A', invoice_no: 'A/001' }), cfg, idx),
+      d,
+    ], cfg, { period: '2026-08' });
+    assert.strictEqual(g.counts.cancelled, 1, JSON.stringify(shape));
+    assert.strictEqual(g.b2cs.reduce((a, r) => a + r.taxablePaise, 0n), 10000n, JSON.stringify(shape));
+  }
+});
+
+test('taxApplied is honoured in either spelling', () => {
+  for (const shape of [{ tax_applied: true }, { taxApplied: true }]) {
+    const d = normalizeSale(sale({ items: [line({ qty: 1 })], sub: 100, tax: 5, total: 105, ...shape }), cfg, idx);
+    assert.ok(d.totals.cgstPaise > 0n || d.totals.sgstPaise > 0n, JSON.stringify(shape));
+  }
+  for (const shape of [{ tax_applied: false }, { taxApplied: false }]) {
+    const d = normalizeSale(sale({ items: [line({ qty: 1 })], sub: 100, tax: 0, total: 100, ...shape }), cfg, idx);
+    assert.strictEqual(d.totals.igstPaise, 0n, JSON.stringify(shape));
+  }
+});
+
 test('drafts are excluded from every table', () => {
   const g = build([sale({ status: 'draft' })]);
   assert.strictEqual(g.b2cs.length, 0);
