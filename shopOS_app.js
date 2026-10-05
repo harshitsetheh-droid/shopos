@@ -6215,9 +6215,9 @@ function renderDashboard(){
   const todayProfit = calcProfit(todaySales);
   const totalProfit = calcProfit(sales);
   const todayExpenses = calcPeriodExpenses(new Date(new Date().setHours(0,0,0,0)), new Date());
-  const totalExpenses = totalExpenses();
+  const allTimeExpenses = totalExpenses();
   const netTodayProfit = todayProfit - todayExpenses;
-  const netTotalProfit = totalProfit - totalExpenses;
+  const netTotalProfit = totalProfit - allTimeExpenses;
   const lowItems=products.filter(p=>p.stock<=p.low).length;
   const activeOrders=advanceOrders.filter(o=>o.status!=='billed').length;
   const pendingUdhaarCount=udhaarRecords.filter(r=>r.totalPending>0).length;
