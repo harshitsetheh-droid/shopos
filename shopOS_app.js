@@ -6277,76 +6277,8 @@ function renderDashboard(){
       <div class="stat-value orange">₹${fmt(pendingUdhaarAmt)}</div>
       <div class="stat-sub">${pendingUdhaarCount} customer${pendingUdhaarCount!==1?'s':''}</div>
     </div>`;
-  // ── Sales This Week ──────────────────────────────────────────────────────
-  // Monday-first, and scoped to THIS week. It used to add up every sale ever
-  // made and group by weekday, so the card titled "Sales This Week" was showing
-  // all-time totals — a bar that only ever grew and never meant this week.
-  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const dayFull=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-  const weekStart=(()=>{                       // Monday 00:00 of the current week
-    const n=new Date();
-    const back=(n.getDay()+6)%7;
-    const d=new Date(n.getFullYear(),n.getMonth(),n.getDate()-back);
-    return d;
-  })();
-  const weekEnd=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+7);
-  const monFirst=(d)=>(d.getDay()+6)%7;
-
-  const perDay=days.map(()=>({revenue:0,bills:0,items:0}));
-  sales.forEach(s=>{
-    const d=new Date(s.date);
-    if(d<weekStart||d>=weekEnd) return;
-    const i=monFirst(d);
-    perDay[i].revenue+=_dashUdhaarMode?(Number(s.total)||0):(Number(s.amtPaid)||Number(s.total)||0);
-    perDay[i].bills+=1;
-    perDay[i].items+=(s.items||[]).reduce((a,it)=>a+(Number(it.qty)||0),0);
-  });
-  const dayData=perDay.map(d=>d.revenue);
-  const maxVal=Math.max(...dayData,1);
-  const weekTotal=dayData.reduce((a,v)=>a+v,0);
-  const weekBills=perDay.reduce((a,d)=>a+d.bills,0);
-  const todayIdx=monFirst(new Date());
-
-  const weekEl=document.getElementById('weekChart');
-  weekEl.innerHTML=days.map((label,i)=>{
-    const d=perDay[i];
-    const heightPct=d.revenue>0?Math.max((d.revenue/maxVal*100),3):0;
-    const date=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+i);
-    const dateLabel=date.toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric'});
-    const head=`${dayFull[i]}, ${dateLabel}${i===todayIdx?' · Today':''}`;
-    const tip=`<div class="bar-tooltip">
-        <div class="bar-tip-head">${head}</div>
-        ${d.revenue>0
-          ? `<div class="bar-tip-row"><span class="k">Revenue</span><span class="v">₹${fmt(d.revenue)}</span></div>
-             <div class="bar-tip-row"><span class="k k2">Bills</span><span class="v">${d.bills}</span></div>
-             <div class="bar-tip-row"><span class="k k3">Items sold</span><span class="v">${d.items}</span></div>`
-          : `<div class="bar-tip-row"><span class="k">No sales</span></div>`}
-      </div>`;
-    return `<div class="bar-col" onclick="showDayDetail('${_localDateStr(date)}')" style="cursor:pointer;">
-      <div class="bar-wrap">
-        ${d.revenue>0
-          ? `<div class="bar-animated" style="height:${heightPct}%;" data-val="${d.revenue}">${tip}</div>`
-          // a faint stub, so a day with no sales still reads as one of the seven
-          : `<div class="bar-empty" data-val="0">${tip}</div>`}
-      </div>
-      <div class="bar-label" style="${i===todayIdx?'color:var(--accent);font-weight:700;':''}">${label}</div>
-    </div>`;
-  }).join('');
-
-  // a caption under the chart, so the scope is never ambiguous
-  let weekCap=document.getElementById('weekChartCap');
-  if(!weekCap){
-    weekCap=document.createElement('div');
-    weekCap.id='weekChartCap';
-    weekCap.style.cssText='font-size:11px;color:var(--muted);margin-top:10px;text-align:center;';
-    weekEl.parentElement.appendChild(weekCap);
-  }
-  const capFrom=weekStart.toLocaleString('en-IN',{day:'numeric',month:'short'});
-  const capTo=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+6)
-    .toLocaleString('en-IN',{day:'numeric',month:'short'});
-  weekCap.textContent=weekBills
-    ? `${capFrom} – ${capTo} · ${weekBills} bill${weekBills!==1?'s':''} · ₹${fmt(weekTotal)} total`
-    : `${capFrom} – ${capTo} · no sales yet this week`;
+  renderWeekChart();
+  bindWeekChartSwipe();
   const low=products.filter(p=>p.stock<=p.low);
   document.getElementById('lowStockList').innerHTML=
     !products.length
@@ -6473,6 +6405,158 @@ function showDashDetail(type){
 }
 
 // ── SALES HISTORY ─────────────────────────────────────────────────────────────
+// ── Sales This Week ────────────────────────────────────────────────────────────
+// Seven days ending _weekChartOffset days before today. Swipe right (or click the
+// arrows) to walk backwards, up to WEEK_LOOKBACK_MAX days.
+//
+// It used to add up every sale ever made and group by weekday, so a card titled
+// "Sales This Week" was showing all-time totals — a bar that could only grow and
+// never meant the week you were looking at.
+const WEEK_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const WEEK_DAYS_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+// How far back the swipe goes. The window is 7 days wide, so this covers roughly
+// a month of history from the oldest day you can reach to today.
+const WEEK_LOOKBACK_MAX = 23;
+let _weekChartOffset = 0;
+
+function weekWindowEnd(){
+  const n = new Date();
+  const d = new Date(n.getFullYear(), n.getMonth(), n.getDate() - _weekChartOffset);
+  return d;
+}
+function weekWindowStart(){
+  const e = weekWindowEnd();
+  return new Date(e.getFullYear(), e.getMonth(), e.getDate() - 6);
+}
+function shiftWeekChart(step){
+  const next = _weekChartOffset + step;          // step +1 = one day further back
+  const clamped = Math.max(0, Math.min(WEEK_LOOKBACK_MAX, next));
+  if (clamped === _weekChartOffset) return;
+  _weekChartOffset = clamped;
+  renderWeekChart();
+}
+
+/** Drag/swipe across the chart to walk the 7-day window. Bound once, on load. */
+let _weekSwipeBound = false;
+function bindWeekChartSwipe(){
+  if (_weekSwipeBound) return;
+  const el = document.getElementById('weekChart');
+  if (!el) return;
+  _weekSwipeBound = true;
+  let x0 = null, y0 = null;
+  const start = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    x0 = t.clientX; y0 = t.clientY;
+  };
+  const end = (e) => {
+    if (x0 == null) return;
+    const t = e.changedTouches ? e.changedTouches[0] : e;
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    // horizontal intent only, so a tap-to-select still registers as a click
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.4) shiftWeekChart(dx > 0 ? 1 : -1);
+  };
+  el.addEventListener('touchstart', start, { passive:true });
+  el.addEventListener('touchend', end, { passive:true });
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', end);
+}
+
+function renderWeekChart(){
+  const el = document.getElementById('weekChart');
+  if (!el) return;
+  const start = weekWindowStart();
+  const end = weekWindowEnd();
+  const endExclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+  const todayKey = _localDateStr(new Date());
+
+  // one bucket per day in the window, carrying enough to answer any question in
+  // the tooltip without re-scanning sales for each bar
+  const buckets = WEEK_DAYS.map(() => ({ revenue:0, gst:0, profit:0, bills:0, items:0, list:[] }));
+  sales.forEach(s => {
+    const d = new Date(s.date);
+    if (d < start || d >= endExclusive) return;
+    const i = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 86400000);
+    if (i < 0 || i > 6) return;
+    const b = buckets[i];
+    b.revenue += _dashUdhaarMode ? (Number(s.total)||0) : (Number(s.amtPaid) || Number(s.total) || 0);
+    b.gst     += Number(s.tax) || 0;
+    b.bills   += 1;
+    b.items   += (s.items||[]).reduce((a,it) => a + (Number(it.qty)||0), 0);
+    b.list.push(s);
+  });
+  // profit comes from calcProfit so the tooltip and the stat cards can never
+  // disagree — including the discount handling and the out-of-financials flag
+  buckets.forEach(b => { b.profit = calcProfit(b.list); });
+
+  const maxVal = Math.max(...buckets.map(b => b.revenue), 1);
+  const totalRevenue = buckets.reduce((a,b) => a + b.revenue, 0);
+  const totalBills = buckets.reduce((a,b) => a + b.bills, 0);
+  const totalGst = buckets.reduce((a,b) => a + b.gst, 0);
+  const totalProfit = buckets.reduce((a,b) => a + b.profit, 0);
+  const isCurrent = _weekChartOffset === 0;
+
+  el.innerHTML = WEEK_DAYS.map((label, i) => {
+    const b = buckets[i];
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    const dateLabel = date.toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+    const isToday = _localDateStr(date) === todayKey;
+    const head = `${WEEK_DAYS_FULL[i]}, ${dateLabel}${isToday ? ' · Today' : ''}`;
+
+    const row = (k, v, cls) => `<div class="bar-tip-row"><span class="k${cls||''}">${k}</span><span class="v">${v}</span></div>`;
+    const tip = `<div class="bar-tooltip${i===0?' tip-left':(i===6?' tip-right':'')}">
+        <div class="bar-tip-head">${head}</div>
+        ${b.bills
+          ? row('Revenue', '₹'+fmt(b.revenue))
+          + row('Profit', '₹'+fmt(b.profit), ' k4')
+          + (b.gst ? row('GST collected', '₹'+fmt(b.gst), ' k2') : '')
+          + row('Bills', b.bills, ' k3')
+          + row('Items sold', b.items)
+          : `<div class="bar-tip-row"><span class="k">No sales</span></div>`}
+      </div>`;
+
+    const hPct = b.revenue > 0 ? Math.max((b.revenue / maxVal) * 100, 3) : 0;
+    return `<div class="bar-col" data-date="${_localDateStr(date)}" onclick="showDayDetail('${_localDateStr(date)}')" style="cursor:pointer;">
+      <div class="bar-wrap">
+        ${b.revenue>0
+          ? `<div class="bar-animated" style="height:${hPct}%;" data-val="${b.revenue}">${tip}</div>`
+          // a faint stub, so a day with no sales still reads as one of the seven
+          : `<div class="bar-empty" data-val="0">${tip}</div>`}
+      </div>
+      <div class="bar-label" style="${isToday?'color:var(--accent);font-weight:700;':''}">${label}</div>
+    </div>`;
+  }).join('');
+
+  // ── header: arrows, range, and the swipe hint ───────────────────────────
+  const shortFrom = start.toLocaleString('en-IN', { day:'numeric', month:'short' });
+  const shortTo = end.toLocaleString('en-IN', { day:'numeric', month:'short' });
+  const title = document.getElementById('weekChartTitle');
+  if (title) {
+    title.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">
+        <button class="chart-nav" id="weekPrev" ${_weekChartOffset>=WEEK_LOOKBACK_MAX?'disabled':''} title="Previous day (swipe right)">‹</button>
+        <span>${isCurrent ? 'Sales This Week' : 'Sales'}</span>
+        <button class="chart-nav" id="weekNext" ${isCurrent?'disabled':''} title="Next day (swipe left)">›</button>
+      </div>`;
+    const prev = document.getElementById('weekPrev');
+    const next = document.getElementById('weekNext');
+    if (prev) prev.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(1); };
+    if (next) next.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(-1); };
+  }
+
+  let cap = document.getElementById('weekChartCap');
+  if (!cap) {
+    cap = document.createElement('div');
+    cap.id = 'weekChartCap';
+    el.parentElement.appendChild(cap);
+  }
+  cap.innerHTML = totalBills
+    ? `<strong>${shortFrom} – ${shortTo}</strong> · ${totalBills} bill${totalBills!==1?'s':''} · ₹${fmt(totalRevenue)} revenue
+       · ₹${fmt(totalProfit)} profit · ₹${fmt(totalGst)} GST
+       <span style="opacity:.7;">· swipe or use ‹ › to go back</span>`
+    : `<strong>${shortFrom} – ${shortTo}</strong> · no sales in these 7 days
+       <span style="opacity:.7;">· swipe or use ‹ › to go back</span>`;
+}
+
 function showDayDetail(dateStr){
   const target=new Date(dateStr);
   if(isNaN(target)) return;
