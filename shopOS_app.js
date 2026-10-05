@@ -1394,6 +1394,12 @@ function notify(msg,type='success'){
 
 // ── NAVIGATION ──────────────────────────────────────────────────────────────
 function navigate(page){
+  // Coming back to the dashboard always shows the latest 7 days, never wherever
+  // the chart happened to be swiped to — otherwise you re-enter and silently read
+  // a month-old window as if it were current.
+  if(page==='dashboard' && _weekChartOffset!==0){
+    _weekChartOffset=0;
+  }
   // Clear inventory search when navigating away from inventory
   if(page!=='inventory'){
     _invSearch='';
@@ -5957,6 +5963,26 @@ function scheduleAdvanceReminders(order){
     _advReminderTimers.push(t2);
   }
 }
+// ── Large list rendering ───────────────────────────────────────────────────────
+// These lists rendered every matching record. At 2,000 advance orders that was
+// 41,000 DOM nodes, and it grows linearly, so a shop with real volume got an
+// unusable page rather than merely a slow one. Render a page at a time and say
+// plainly how much is not on screen — nothing is hidden, it is one click away.
+const LIST_PAGE = 100;
+const _listLimit = { advance: LIST_PAGE, sales: LIST_PAGE };
+function showMoreList(which){
+  _listLimit[which] = (_listLimit[which] || LIST_PAGE) + LIST_PAGE * 4;
+  if (which === 'advance') renderAdvanceOrders(); else renderSalesHistory();
+}
+function listFooter(which, total, shown){
+  if (total <= shown) return '';
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:18px 0 6px;">
+    <div style="font-size:11px;color:var(--muted);">Showing ${shown} of ${total} — ${total-shown} more not shown</div>
+    <button class="btn btn-ghost" style="font-size:12px;padding:6px 16px;border:1px solid var(--border);border-radius:20px;"
+      onclick="showMoreList('${which}')">Show more</button>
+  </div>`;
+}
+
 function renderAdvanceOrders(){
   const wrap=document.getElementById('advanceOrdersWrap');
   if(!advanceOrders.length){
@@ -5964,7 +5990,9 @@ function renderAdvanceOrders(){
     return;
   }
   const now=new Date();
-  wrap.innerHTML=advanceOrders.slice().reverse().map(o=>{
+  const ordered=advanceOrders.slice().reverse();
+  const advShown=Math.min(_listLimit.advance||LIST_PAGE, ordered.length);
+  wrap.innerHTML=ordered.slice(0,advShown).map(o=>{
     const packDate=new Date(o.packTime);
     const isPast=packDate<=now;
     const isHourAway=(packDate.getTime()-now.getTime())<=3600000&&packDate>now;
@@ -6007,7 +6035,7 @@ function renderAdvanceOrders(){
         <span class="badge badge-blue" style="margin-left:auto;">${o.id}</span>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">⏱️ Pack by: <strong style="color:${isPast&&o.status!=='billed'?'var(--red)':'var(--text)'};">${packDate.toLocaleString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</strong>${isHourAway?'<span style="color:var(--red);margin-left:6px;">⚠️ Due soon!</span>':''}</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${o.items.map(i=>`${i.emoji} ${i.productName} ×${i.qty}`).join(' · ')}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${o.items.map(i=>`${i.emoji||'📦'} ${i.productName} ×${i.qty}`).join(' · ')}</div>
       ${o.status!=='billed'?`<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
         <span>Total: <strong style="color:var(--accent);">₹${fmt(o.total)}</strong></span>
         <span>Advance: <strong style="color:var(--green);">₹${fmt(o.advPaid)}</strong></span>
@@ -6025,7 +6053,7 @@ function renderAdvanceOrders(){
       </div>`:''}
       ${o.status!=='billed'?`<div style="margin-top:10px;"><button class="btn btn-primary btn-sm" onclick="openAdvBill('${o.id}')">💰 Bill & Complete</button></div>`:''}
     </div>`;
-  }).join('');
+  }).join('') + listFooter('advance', ordered.length, advShown);
 }
 
 function getTimeSince(date){
@@ -6052,7 +6080,7 @@ function openAdvBill(id){
   const udPending=udRec?Math.max(0,udRec.totalPending):0;
 
   // Build summary rows for the order
-  let summaryRows=o.items.map(i=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;"><span>${i.emoji} ${i.productName} ×${i.qty}</span><span>₹${fmt(i.price*i.qty)}</span></div>`).join('');
+  let summaryRows=o.items.map(i=>`<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;"><span>${i.emoji||'📦'} ${i.productName} ×${i.qty}</span><span>₹${fmt(i.price*i.qty)}</span></div>`).join('');
 
   // Build breakdown
   let breakdownHtml='';
@@ -6532,15 +6560,21 @@ function renderWeekChart(){
   const shortTo = end.toLocaleString('en-IN', { day:'numeric', month:'short' });
   const title = document.getElementById('weekChartTitle');
   if (title) {
+    // A rolling 7 days ending today, not a Mon-Sun calendar week - that is what
+    // makes stepping one day at a time mean anything. So do not call it "this
+    // week": today being a Monday, the default window is the PREVIOUS seven days.
     title.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">
         <button class="chart-nav" id="weekPrev" ${_weekChartOffset>=WEEK_LOOKBACK_MAX?'disabled':''} title="Previous day (swipe right)">‹</button>
-        <span>${isCurrent ? 'Sales This Week' : 'Sales'}</span>
+        <span>${isCurrent ? 'Last 7 Days' : 'Sales'}</span>
         <button class="chart-nav" id="weekNext" ${isCurrent?'disabled':''} title="Next day (swipe left)">›</button>
+        ${isCurrent ? '' : '<button class="chart-nav" id="weekToday" title="Back to the latest 7 days" style="width:auto;padding:0 8px;font-size:11px;">Today</button>'}
       </div>`;
     const prev = document.getElementById('weekPrev');
     const next = document.getElementById('weekNext');
+    const back = document.getElementById('weekToday');
     if (prev) prev.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(1); };
     if (next) next.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(-1); };
+    if (back) back.onclick = (ev) => { ev.stopPropagation(); _weekChartOffset = 0; renderWeekChart(); };
   }
 
   let cap = document.getElementById('weekChartCap');
@@ -6690,8 +6724,10 @@ function renderSalesHistory(){
   const label=(_salesGstOnly?' GST only':_salesMethodFilter?` ${_salesMethodFilter}`:'')+(_salesSearchQuery?` · search: "${_salesSearchQuery}"`:'');
   document.getElementById('salesCount').textContent = `${filtered.length} sale${filtered.length!==1?'s':''}${label}`;
   const methodColors={Cash:'green',UPI:'yellow',Udhaar:'red'};
+  const salesOrdered=filtered.slice().reverse();
+  const salesShown=Math.min(_listLimit.sales||LIST_PAGE, salesOrdered.length);
   wrap.innerHTML=`<div class="inv-hist-wrap">${
-    filtered.slice().reverse().map(s=>{
+    salesOrdered.slice(0,salesShown).map(s=>{
       const d=new Date(s.date);
       const dateStr=d.toLocaleString('en-CN',{day:'numeric',month:'short',year:'numeric'});
       const timeStr=d.toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit'});
@@ -6723,7 +6759,7 @@ function renderSalesHistory(){
         </div>
       </div>`;
     }).join('')
-  }</div>`;
+  }</div>` + listFooter('sales', salesOrdered.length, salesShown);
 }
 
 // ── REPORTS ───────────────────────────────────────────────────────────────────
@@ -6947,8 +6983,9 @@ function showAvgSaleBreakdown(){
   if(!filteredSales.length){ notify('No sales data yet','error'); return; }
   const totalRev=calcRevenue(filteredSales, _reportsUdhaarMode);
   const avg=totalRev/filteredSales.length;
-  const max=Math.max(...filteredSales.map(s=>s.total));
-  const min=Math.min(...filteredSales.map(s=>s.total));
+  // reduce-based: Math.max(...arr) overflows the stack past ~125k sales
+  let max=-Infinity, min=Infinity;
+  for(const s of filteredSales){ const t=Number(s.total)||0; if(t>max)max=t; if(t<min)min=t; }
   notify(`Avg: ₹${fmt(avg)} · Max: ₹${fmt(max)} · Min: ₹${fmt(min)} · ${filteredSales.length} sales total`);
 }
 
@@ -7893,13 +7930,33 @@ function getOrCreateLedger(customerName, phone){
   return ledger;
 }
 
+/**
+ * Recompute every entry's running balance from the debits and credits.
+ *
+ * The balance used to be carried forward from the last entry's stored value, so a
+ * single wrong or missing figure poisoned every balance after it, permanently and
+ * invisibly. Summing the movements is cheap even for a large customer and cannot
+ * drift.
+ */
+function recalcLedgerBalances(ledger){
+  const list = (ledger && ledger.entries) || [];
+  let bal = 0;
+  for (const e of list) {
+    const dr = Number(e.debit) || 0;
+    const cr = Number(e.credit) || 0;
+    bal += dr - cr;
+    e.balance = Math.round(bal * 100) / 100;
+  }
+  return bal;
+}
+
 function addLedgerEntry(customerName, phone, date, description, debit, credit){
   if(!customerName) return;
   const ledger = getOrCreateLedger(customerName, phone);
-  const entries = ledger.entries;
-  const lastBal = entries.length ? entries[entries.length-1].balance : 0;
-  const balance = lastBal + (debit||0) - (credit||0);
-  entries.push({ date: date||_localDateStr(), description: description||'', debit: debit||0, credit: credit||0, balance: Math.round(balance*100)/100 });
+  if (!Array.isArray(ledger.entries)) ledger.entries = [];
+  ledger.entries.push({ date: date||_localDateStr(), description: description||'',
+    debit: Number(debit)||0, credit: Number(credit)||0, balance: 0 });
+  recalcLedgerBalances(ledger);
   saveAllData();
 }
 
@@ -8098,10 +8155,17 @@ async function loadAllData(){
       id:n.id, title:n.title||'', content:n.content||'',
       updatedAt:n.updatedAt||n.updated_at||null
     }));
-    if(data.customerLedgers) customerLedgers = data.customerLedgers.map(l => ({
-      id:l.id, customerName:l.customer_name||l.customerName, phone:l.phone||'',
-      location:l.location||null, entries:l.entries||[]
-    }));
+    if(data.customerLedgers) customerLedgers = data.customerLedgers.map(l => {
+      const led = {
+        id:l.id, customerName:l.customer_name||l.customerName, phone:l.phone||'',
+        location:l.location||null, entries:Array.isArray(l.entries)?l.entries:[]
+      };
+      // The running balance is derived data, so recompute it on load rather than
+      // trusting whatever was stored. A wrong figure in one entry used to poison
+      // every balance after it, and nothing ever corrected it.
+      recalcLedgerBalances(led);
+      return led;
+    });
     if(data.purchasePriceLog) purchasePriceLog = data.purchasePriceLog;
     if(data.supplierTransportLog) supplierTransportLog = data.supplierTransportLog;
     if(data.expenses) expenses = data.expenses.map(e => ({
@@ -8176,12 +8240,17 @@ async function migrateOldData(){
   inventoryHistory = merged.inventoryHistory;
   udhaarRecords    = merged.udhaarRecords;
   advanceOrders    = merged.advanceOrders;
-  // Recalculate next IDs from merged data
-  if(products.length) nextProdId = Math.max(...products.map(p=>p.id))+1;
-  if(categories.length) nextCatId = Math.max(...categories.map(c=>c.id))+1;
-  if(sales.length){ const ns=sales.map(s=>parseInt(s.id.replace('TXN-',''))||0); nextSaleId=Math.max(...ns)+1; }
-  if(inventoryHistory.length){ const ni=inventoryHistory.map(h=>parseInt(h.id.replace('INV-',''))||0); nextInvId=Math.max(...ni)+1; }
-  if(advanceOrders.length){ const na=advanceOrders.map(o=>parseInt(o.id.replace('ADV-',''))||0); nextAdvId=Math.max(...na)+1; }
+  // Recalculate next IDs from merged data.
+  // Reduce, never Math.max(...arr): spreading passes one argument per element, so
+  // past ~125k records it throws "Maximum call stack size exceeded" and loadAllData
+  // dies — which took the whole app down with it long before any real scale.
+  const maxOf=(arr,fn)=>{let m=0;for(const x of arr){const v=fn(x);if(v>m)m=v;}return m;};
+  const seqNum=(prefix)=>(o)=>parseInt(String(o.id||'').replace(prefix,''))||0;
+  if(products.length) nextProdId = maxOf(products, p=>parseInt(p.id)||0)+1;
+  if(categories.length) nextCatId = maxOf(categories, c=>parseInt(c.id)||0)+1;
+  if(sales.length) nextSaleId = maxOf(sales, seqNum('TXN-'))+1;
+  if(inventoryHistory.length) nextInvId = maxOf(inventoryHistory, seqNum('INV-'))+1;
+  if(advanceOrders.length) nextAdvId = maxOf(advanceOrders, seqNum('ADV-'))+1;
   saveAllData(true);
   renderCategories();
   renderInventory();

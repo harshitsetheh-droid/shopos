@@ -392,30 +392,22 @@ app.post('/api/save', authMiddleware, async (req, res) => {
     }
 
     const nextIds = { nextProdId: 1, nextCatId: 1, nextSaleId: 1, nextInvId: 1, nextAdvId: 1, nextNoteId: 1, nextLedgerId: 1, nextExpId: 1 };
-    if (products && products.length) nextIds.nextProdId = Math.max(...products.map(p => p.id)) + 1;
-    if (categories && categories.length) nextIds.nextCatId = Math.max(...categories.map(c => c.id)) + 1;
-    if (sales && sales.length) {
-      const nums = sales.map(s => parseInt(s.id.replace('TXN-', '')) || 0);
-      nextIds.nextSaleId = Math.max(...nums, 0) + 1;
-    }
-    if (inventoryHistory && inventoryHistory.length) {
-      const nums = inventoryHistory.map(h => parseInt(h.id.replace('INV-', '')) || 0);
-      nextIds.nextInvId = Math.max(...nums, 0) + 1;
-    }
-    if (advanceOrders && advanceOrders.length) {
-      const nums = advanceOrders.map(o => parseInt(o.id.replace('ADV-', '')) || 0);
-      nextIds.nextAdvId = Math.max(...nums, 0) + 1;
-    }
-    if (notes && notes.length) {
-      const nums = notes.map(n => parseInt(n.id.replace('NOTE-', '')) || 0);
-      nextIds.nextNoteId = Math.max(...nums, 0) + 1;
-    }
+    // Reduce, never Math.max(...arr). Spreading passes one argument per element,
+    // so past ~125k rows it throws "Maximum call stack size exceeded" — and since
+    // this runs inside the save transaction, that failed every save for a shop
+    // with real volume, not just the big ones.
+    const maxOf = (arr, fn) => { let m = 0; for (const x of arr) { const v = fn(x); if (v > m) m = v; } return m; };
+    const seq = (prefix) => (o) => parseInt(String((o && o.id) || '').replace(prefix, '')) || 0;
+    if (products && products.length) nextIds.nextProdId = maxOf(products, (p) => parseInt(p.id) || 0) + 1;
+    if (categories && categories.length) nextIds.nextCatId = maxOf(categories, (c) => parseInt(c.id) || 0) + 1;
+    if (sales && sales.length) nextIds.nextSaleId = maxOf(sales, seq('TXN-')) + 1;
+    if (inventoryHistory && inventoryHistory.length) nextIds.nextInvId = maxOf(inventoryHistory, seq('INV-')) + 1;
+    if (advanceOrders && advanceOrders.length) nextIds.nextAdvId = maxOf(advanceOrders, seq('ADV-')) + 1;
+    if (notes && notes.length) nextIds.nextNoteId = maxOf(notes, seq('NOTE-')) + 1;
     if (req.body.customerLedgers && req.body.customerLedgers.length) {
-      nextIds.nextLedgerId = Math.max(...req.body.customerLedgers.map(l => parseInt(l.id) || 0), 0) + 1;
+      nextIds.nextLedgerId = maxOf(req.body.customerLedgers, (l) => parseInt(l.id) || 0) + 1;
     }
-    if (expenses && expenses.length) {
-      nextIds.nextExpId = Math.max(...expenses.map(e => parseInt(e.id.replace('EXP-', '')) || 0), 0) + 1;
-    }
+    if (expenses && expenses.length) nextIds.nextExpId = maxOf(expenses, seq('EXP-')) + 1;
     await client.query(
       'INSERT INTO app_state (key, account_id, value) VALUES ($1,$2,$3) ON CONFLICT (key,account_id) DO UPDATE SET value=EXCLUDED.value',
       ['nextIds', aid, JSON.stringify(nextIds)]
@@ -580,6 +572,42 @@ async function applyDelta(client, aid, changed) {
       if (name === 'sales' && row.is_interstate === undefined) {
         row.is_interstate = rec.intra != null ? !rec.intra : false;
       }
+      // ── A ledger must never shrink ────────────────────────────────────────
+      // A customer's whole history is one JSONB row, so the upsert replaces it
+      // wholesale. If the client ever sent a shorter list — a partial load, two
+      // tabs open, a truncated response — the missing entries were deleted for
+      // good, silently. Merge instead: the stored list wins on any entry the
+      // client no longer has, and genuinely new entries are appended.
+      if (name === 'customerLedgers' && row.entries !== undefined && row.entries !== null) {
+        const prev = await client.query(
+          'SELECT entries FROM customer_ledgers WHERE id=$1 AND account_id=$2',
+          [rec.id, aid],
+        );
+        const stored = prev.rows[0] && prev.rows[0].entries;
+        if (Array.isArray(stored) && stored.length) {
+          const incoming = typeof row.entries === 'string' ? JSON.parse(row.entries) : row.entries;
+          if (Array.isArray(incoming) && incoming.length < stored.length) {
+            // key on the entry's own content, so identical rows do not duplicate
+            const keyOf = (e) => [e && e.date, e && e.description, e && e.debit, e && e.credit].join('|');
+            const seen = new Set(incoming.map(keyOf));
+            const merged = stored.slice();
+            let added = 0;
+            for (const e of incoming) {
+              if (!seen.has(keyOf(e))) { merged.push(e); added++; }
+            }
+            if (added) {
+              // re-derive the running balances so the appended tail is consistent
+              let bal = 0;
+              for (const e of merged) {
+                bal += (Number(e && e.debit) || 0) - (Number(e && e.credit) || 0);
+                if (e && typeof e === 'object') e.balance = Math.round(bal * 100) / 100;
+              }
+            }
+            row.entries = merged;
+            if (added) console.warn(`Ledger ${rec.id}: kept ${stored.length} stored entries, appended ${added} new`);
+          }
+        }
+      }
       const cols = spec.cols.slice();
       // JSON columns must be serialised; booleans pass through; undefined → NULL
       const jsonCols = new Set(['items', 'bills', 'entries', 'transport', 'location', 'photo', 'raw']);
@@ -604,9 +632,16 @@ async function applyDelta(client, aid, changed) {
 
 async function persistAppState(client, aid, body) {
   const nextIds = { nextProdId:1, nextCatId:1, nextSaleId:1, nextInvId:1, nextAdvId:1, nextNoteId:1, nextLedgerId:1, nextExpId:1 };
-  const maxOf = (arr, re, key) => (arr && arr.length)
-    ? Math.max(...arr.map((x) => parseInt(String(x[key] || '').replace(re, '')) || 0), 0) + 1
-    : 1;
+  // Reduce-based; Math.max(...arr) overflows the stack past ~125k rows.
+  const maxOf = (arr, re, key) => {
+    if (!arr || !arr.length) return 1;
+    let m = 0;
+    for (const x of arr) {
+      const v = parseInt(String((x && x[key]) || '').replace(re, '')) || 0;
+      if (v > m) m = v;
+    }
+    return m + 1;
+  };
   if (body.products) nextIds.nextProdId = maxOf(body.products, '', 'id');
   if (body.categories) nextIds.nextCatId = maxOf(body.categories, '', 'id');
   if (body.sales) nextIds.nextSaleId = maxOf(body.sales, /^TXN-/, 'id');

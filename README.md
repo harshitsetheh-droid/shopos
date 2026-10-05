@@ -253,6 +253,35 @@ check digit has edge cases around the GSTN's own state-code handling. Turn
 enforcement on per business in **Advanced config** once you have verified the
 algorithm against the GSTN specification for your real GSTINs.
 
+### How much data this handles
+
+The app holds every sale in the browser and re-examines every record on each
+save, so there is a ceiling, and it is worth knowing where it is.
+
+| Records | Behaviour |
+| --- | --- |
+| up to ~100k sales | Comfortable. Partial saves, lists page at 100, reports instant. |
+| ~500k sales | Works, but the 10-second autosave costs ~0.5s of CPU. Reports get sluggish. |
+| 1M+ sales | Not usable. Autosave alone is over a second, and `/load` returns every sale in one response. |
+| 10M (1 crore) | Not supported. This needs a different architecture, not tuning. |
+
+Two things that used to make the ceiling much lower are now fixed: a
+`Math.max(...rows)` call threw "Maximum call stack size exceeded" past ~125k
+records and killed the app on load (and failed every save server-side), and long
+lists rendered every row, so 2,000 advance orders meant 41,000 DOM nodes.
+
+Going beyond ~500k means server-side pagination, so the browser never holds the
+whole table, and change tracking (an `updated_at` watermark) so a save sends only
+what actually changed instead of diffing every record in memory. That is a
+substantial piece of work, not a tweak — worth doing deliberately rather than
+pretending the current design scales.
+
+**A customer's whole ledger history is one JSONB row.** The save path merges
+rather than overwrites, so a shorter list can never delete entries, and running
+balances are recomputed from the debits and credits on every load. A very active
+customer still means one large row rewritten per entry; giving entries their own
+table is the fix if that ever bites.
+
 ### Hiding a sale
 
 Deleting a sale never destroys it — it sets a flag, and the sale stays in the
