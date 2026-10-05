@@ -895,15 +895,28 @@ app.post('/api/gst/status/:period', authMiddleware, async (req, res) => {
     const cur = await pool.query('SELECT * FROM gst_periods WHERE account_id=$1 AND period=$2', [aid, period]);
     const current = cur.rows[0];
     const from = current ? current.status : 'draft';
-    if (!ALLOWED[from] || !ALLOWED[from].includes(status)) {
-      return res.status(400).json({ error: `Cannot move a period from "${from}" to "${status}"` });
+    const to = status || from;
+
+    // Editing the manual inputs (interest, late fees, ledger balances) is not a
+    // status change. The UI sends the current status alongside them, so a request
+    // that leaves the status alone must not be run through the transition table -
+    // draft -> draft is not a transition, and rejecting it meant those inputs
+    // could not be entered at all while a period was still a draft, which is
+    // exactly when you need to fill them in.
+    const sameStatus = to === from;
+    if (!sameStatus && (!ALLOWED[from] || !ALLOWED[from].includes(to))) {
+      return res.status(400).json({ error: `Cannot move a period from "${from}" to "${to}"` });
     }
-    if (status === 'filed' && !arn) {
+    // ARN, notes and manual inputs are only editable before the period is locked.
+    if (from === 'locked' && (arn || notes || manualInput)) {
+      return res.status(400).json({ error: 'A locked period cannot be edited' });
+    }
+    if (to === 'filed' && !arn) {
       return res.status(400).json({ error: 'Enter the ARN when marking a period as filed' });
     }
 
     // A filed/locked period must not be editable — enforce on document writes.
-    if (status === 'locked') {
+    if (to === 'locked') {
       // lock every document dated in the period
       await pool.query(
         `UPDATE sales SET doc_status='cancelled', cancel_reason=$3
@@ -923,15 +936,16 @@ app.post('/api/gst/status/:period', authMiddleware, async (req, res) => {
          gstr3b_exported_at=COALESCE(EXCLUDED.gstr3b_exported_at, gst_periods.gstr3b_exported_at),
          manual_input=COALESCE(EXCLUDED.manual_input, gst_periods.manual_input),
          updated_at=NOW()`,
-      [aid, period, status, String(arn).slice(0, 50), filingDate || null,
-        status === 'locked' ? new Date() : null,
-        status === 'exported' ? new Date() : null,
-        status === 'exported' ? new Date() : null,
+      [aid, period, to, String(arn).slice(0, 50), filingDate || null,
+        to === 'locked' ? new Date() : null,
+        to === 'exported' ? new Date() : null,
+        to === 'exported' ? new Date() : null,
         manualInput ? JSON.stringify(manualInput) : null, String(notes).slice(0, 2000)],
     );
 
-    await audit(aid, period, `status.${status}`, `Period moved ${from} → ${status}`, { arn });
-    res.json({ success: true, status, from });
+    await audit(aid, period, sameStatus ? 'manual.update' : `status.${to}`,
+      sameStatus ? 'Updated manual 3B inputs' : `Period moved ${from} → ${to}`, { arn });
+    res.json({ success: true, status: to, from });
   } catch (e) {
     console.error('GST status error:', e);
     res.status(500).json({ error: 'Failed to update period status' });

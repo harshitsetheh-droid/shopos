@@ -44,7 +44,7 @@ node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
 # API + delta-save suites — these spawn their own server and need the database.
 # They must run from backend/ because dotenv reads .env relative to the cwd.
 cd backend
-node ../gst/tests/api.test.js      # 37 checks — HTTP surface, workflow, audit
+node ../gst/tests/api.test.js      # 40 checks — HTTP surface, workflow, audit
 node ../gst/tests/delta.test.js    # 24 checks — partial save, upsert/delete
 node ../gst/tests/verify-schema.js # asserts every GST column/table exists
 ```

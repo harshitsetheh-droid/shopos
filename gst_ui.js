@@ -26,6 +26,28 @@ function gstRs(paise){
   const n = Number(paise || 0);
   return '₹' + fmt(n / 100);
 }
+/**
+ * Integer paise → a plain rupee amount for an <input type="number"> value.
+ *
+ * gstRs() returns "₹243.50", which a number input silently discards — .value
+ * comes back as the empty string, so a saved ledger balance appeared to be lost
+ * and re-saving wrote 0.
+ */
+function gstInputRs(paise){
+  const n = Number(paise || 0);
+  return Number.isFinite(n) ? (n / 100).toFixed(2) : '0.00';
+}
+/**
+ * Rupees typed into a field -> integer paise, which is what every amount in the
+ * engine and the API uses. Sending the raw rupee number made interest, late fees
+ * and both ledger balances 100x too small: Rs 12.50 of interest was recorded and
+ * then displayed as Rs 0.13.
+ */
+function gstToPaise(rupees){
+  const n = Number(rupees);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
 /** Sum paise values that may arrive as BigInt, Number or decimal string. */
 function gstSum(...vals){
   let n = 0;
@@ -729,13 +751,13 @@ function renderGstGstr3b(){
     <div class="card"><div class="card-title">Manual inputs (interest, fees, ledger balances)</div>
       <div class="gst-grid">
         <div class="form-group"><label>Interest (₹)</label><input id="gst3bInterest" type="number" step="0.01" min="0"
-          value="${((Number(b.additions.interest)||0)/100).toFixed(2)}"></div>
+          value="${gstInputRs(b.additions.interest)}"></div>
         <div class="form-group"><label>Late fee (₹)</label><input id="gst3bLateFee" type="number" step="0.01" min="0"
-          value="${((Number(b.additions.lateFee)||0)/100).toFixed(2)}"></div>
+          value="${gstInputRs(b.additions.lateFee)}"></div>
         <div class="form-group"><label>Cash ledger balance (₹)</label><input id="gst3bCash" type="number" step="0.01" min="0"
-          value="${gstRs(Number(b.setOff.cashUsed ? b.setOff.cashUsed.igst : 0))}"></div>
+          value="${gstInputRs(b.additions.cash)}"></div>
         <div class="form-group"><label>Credit ledger balance (₹)</label><input id="gst3bCredit" type="number" step="0.01" min="0"
-          value="${gstRs(Number(b.additions.credit || 0))}"></div>
+          value="${gstInputRs(b.additions.credit)}"></div>
       </div>
       <button class="btn btn-primary" style="margin-top:12px;" onclick="gstSaveManual3B()">Save manual inputs</button>
       <span id="gst3bMsg" style="font-size:12px;color:var(--muted);margin-left:10px;"></span>
@@ -752,10 +774,11 @@ async function gstSaveManual3B(){
         status: (_gst.data && _gst.data.status) || 'draft',
         arn: (_gst.data && _gst.data.arn) || '',
         manualInput: {
-          interest: Number(document.getElementById('gst3bInterest').value || 0),
-          lateFee: Number(document.getElementById('gst3bLateFee').value || 0),
-          cashBalance: Number(document.getElementById('gst3bCash').value || 0),
-          creditBalance: Number(document.getElementById('gst3bCredit').value || 0),
+          // paise, not rupees — see gstToPaise
+          interest: gstToPaise(document.getElementById('gst3bInterest').value),
+          lateFee: gstToPaise(document.getElementById('gst3bLateFee').value),
+          cashBalance: gstToPaise(document.getElementById('gst3bCash').value),
+          creditBalance: gstToPaise(document.getElementById('gst3bCredit').value),
         },
       }),
     });

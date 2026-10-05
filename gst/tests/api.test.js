@@ -146,6 +146,25 @@ async function waitForServer() {
       d.schemaCheck ? (d.schemaCheck.errors || []).join(';') : 'none');
 
     // 9. workflow transitions
+    // Manual 3B inputs are edited while the period is still a draft, and the UI
+    // sends the current status alongside them. That request must not be treated
+    // as a draft→draft transition, or the inputs cannot be entered at all.
+    r = await api('/gst/status/' + period, {
+      method: 'POST',
+      body: JSON.stringify({
+        status: 'draft',
+        manualInput: { interest: 1250, lateFee: 25000, cashBalance: 7301, creditBalance: 1000 },
+      }),
+    });
+    check('manual inputs save while the period is a draft', r.status === 200, r.data.error || '');
+    r = await api('/gst/return/' + period);
+    const adds = (r.data.gstr3b || {}).additions || {};
+    // paise, serialised as decimal strings because the engine uses BigInt
+    check('manual inputs persist as paise',
+      String(adds.interest) === '1250' && String(adds.lateFee) === '25000'
+      && String(adds.cash) === '7301' && String(adds.credit) === '1000',
+      `interest=${adds.interest} lateFee=${adds.lateFee} cash=${adds.cash} credit=${adds.credit}`);
+
     r = await api('/gst/status/' + period, { method: 'POST', body: JSON.stringify({ status: 'locked' }) });
     check('illegal transition draft→locked rejected', r.status === 400, r.data.error || '');
 
@@ -175,6 +194,12 @@ async function waitForServer() {
     check('locked period is read-only', r.data && r.data.locked === true);
     check('locked period surfaces a blocker', r.data && r.data.validation.counts.blockers > 0,
       `blockers=${r.data && r.data.validation.counts.blockers}`);
+
+    r = await api('/gst/status/' + period, {
+      method: 'POST',
+      body: JSON.stringify({ status: 'locked', manualInput: { interest: 999 } }),
+    });
+    check('locked period refuses a manual input edit', r.status === 400, r.data.error || '');
 
     // 11. 2B upload + decisions
     r = await api('/gst/2b', {

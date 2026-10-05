@@ -100,6 +100,10 @@ function buildGSTR3B(taxDocs, itc, manual, gstr1, cfg) {
   const additions = {
     interest: nz(manualIn.interest),
     lateFee: nz(manualIn.lateFee),
+    // ledger balances as ENTERED, so the UI can pre-fill the inputs from them.
+    // Do not substitute setOff.cashUsed for the cash figure: that is the amount
+    // consumed, which is a different number and shrinks every time it is saved.
+    cash: nz(manualIn.cashBalance),
     // credit ledger balance available to offset liability
     credit: nz(manualIn.creditBalance),
   };
