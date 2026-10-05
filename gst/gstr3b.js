@@ -113,11 +113,20 @@ function buildGSTR3B(taxDocs, itc, manual, gstr1, cfg) {
   };
 
   const setOff = applySetOff(liability, credit, config.setOffOrder);
-  // cash ledger used only after all credit is exhausted
-  const cashUsed = {
-    igst: minBig(setOff.payable.igst, nz(manualIn.cashBalance)),
-  };
-  setOff.payable.igst -= cashUsed.igst;
+  // Cash ledger (challans already paid) applies only after all credit is
+  // exhausted, and against every head — not just IGST. It used to be applied to
+  // IGST alone, so challan money never reduced CGST/SGST payable and the return
+  // overstated what was owed even though the shop had already paid.
+  const CASH_ORDER = ['igst', 'cgst', 'sgst', 'cess'];
+  const cashUsed = { igst: ZERO, cgst: ZERO, sgst: ZERO, cess: ZERO };
+  let cashLeft = nz(manualIn.cashBalance);
+  for (const head of CASH_ORDER) {
+    if (cashLeft <= ZERO) break;
+    const used = minBig(setOff.payable[head], cashLeft);
+    cashUsed[head] = used;
+    setOff.payable[head] -= used;
+    cashLeft -= used;
+  }
   setOff.cashUsed = cashUsed;
 
   // ── Cross-check against GSTR-1 ───────────────────────────────────────────

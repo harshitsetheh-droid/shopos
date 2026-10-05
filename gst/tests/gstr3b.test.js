@@ -217,3 +217,57 @@ test('manual interest is added without corrupting the liability heads', () => {
   assert.strictEqual(g3.additions.lateFee, 20n);
   assert.ok(g3.liability.cgst > 0n);
 });
+
+// The cash ledger (challans already paid) was applied to IGST alone, so money
+// already paid never reduced CGST/SGST payable and the return overstated what
+// was owed. It now offsets every head, in order, from a single balance.
+const cashDocs = () => docs([
+  sale({ id: 'A', invoice_no: 'A/1', is_interstate: true, place_of_supply: '29',
+    items: [line({ qty: 1, price: 100, gst: 0, cgst: 0, sgst: 0, igst: 5 })],
+    sub: 100, tax: 5, total: 105 }),
+  sale({ id: 'B', invoice_no: 'B/1',
+    items: [line({ qty: 1, price: 120, gst: 10, cgst: 5, sgst: 5, igst: 0 })],
+    sub: 120, tax: 12, total: 132 }),
+]);
+const noCredit = {
+  others: 0n, creditByHead: { igst: 0n, cgst: 0n, sgst: 0n, cess: 0n },
+  reversed: 0n, ineligible: 0n,
+};
+const flat = (o) => ({ igst: o.igst, cgst: o.cgst, sgst: o.sgst, cess: o.cess });
+
+test('with no cash the full liability is payable', () => {
+  const g = buildGSTR3B(cashDocs(), noCredit, { cashBalance: 0n }, null, cfg);
+  assert.deepStrictEqual(flat(g.setOff.payable), { igst: 500n, cgst: 600n, sgst: 600n, cess: 0n });
+});
+
+test('cash reduces IGST, then CGST, then SGST', () => {
+  const g = buildGSTR3B(cashDocs(), noCredit, { cashBalance: 500n }, null, cfg);
+  assert.deepStrictEqual(flat(g.setOff.cashUsed), { igst: 500n, cgst: 0n, sgst: 0n, cess: 0n });
+  assert.deepStrictEqual(flat(g.setOff.payable), { igst: 0n, cgst: 600n, sgst: 600n, cess: 0n });
+});
+
+test('cash beyond IGST is applied to the state heads, not left unspent', () => {
+  const g = buildGSTR3B(cashDocs(), noCredit, { cashBalance: 1200n }, null, cfg);
+  assert.deepStrictEqual(flat(g.setOff.cashUsed), { igst: 500n, cgst: 600n, sgst: 100n, cess: 0n });
+  assert.deepStrictEqual(flat(g.setOff.payable), { igst: 0n, cgst: 0n, sgst: 500n, cess: 0n });
+});
+
+test('excess cash never makes a head negative', () => {
+  const g = buildGSTR3B(cashDocs(), noCredit, { cashBalance: 5000n }, null, cfg);
+  for (const head of ['igst', 'cgst', 'sgst', 'cess']) {
+    assert.ok(g.setOff.payable[head] >= 0n, `${head} went negative`);
+  }
+  const used = flat(g.setOff.cashUsed);
+  assert.strictEqual(used.igst + used.cgst + used.sgst + used.cess, 1700n);
+});
+
+test('cash is not used while input credit still covers the liability', () => {
+  const withCredit = {
+    others: 9000n, creditByHead: { igst: 9000n, cgst: 0n, sgst: 0n, cess: 0n },
+    reversed: 0n, ineligible: 0n,
+  };
+  const g = buildGSTR3B(cashDocs(), withCredit, { cashBalance: 500n }, null, cfg);
+  assert.deepStrictEqual(flat(g.setOff.payable), { igst: 0n, cgst: 0n, sgst: 0n, cess: 0n });
+  assert.deepStrictEqual(flat(g.setOff.cashUsed), { igst: 0n, cgst: 0n, sgst: 0n, cess: 0n });
+  assert.strictEqual(g.setOff.remainingCredit.igst, 7300n, 'credit is carried forward');
+});
