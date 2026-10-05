@@ -267,6 +267,24 @@ async function initDB() {
     // The supplier's own invoice number. Without it a purchase row cannot be
     // matched to its 2B line, so reconciliation silently matched nothing.
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_invoice_no VARCHAR(64) DEFAULT ''`);
+
+    // The stock-entry form has always collected these, but the table never had a
+    // column for any of them, so they were silently dropped on every save and the
+    // Inventory History reports (including their "Supplier Bill Paid/Due" sorts)
+    // ran on incomplete data. Additive only - nothing is dropped.
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS destination TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS parcel_count INTEGER DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_bill DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_bill_paid DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_bill_status VARCHAR(20) DEFAULT 'paid'`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_bill_photo TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_provider TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_cost DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_paid DECIMAL(12,2) DEFAULT 0`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_status VARCHAR(20) DEFAULT 'paid'`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_bill_photo TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS transport_cost_expense_id VARCHAR(50) DEFAULT ''`);
+
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_gstin VARCHAR(15) DEFAULT ''`);
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS supplier_state_code VARCHAR(2) DEFAULT ''`);
     await client.query(`ALTER TABLE inventory_history ADD COLUMN IF NOT EXISTS purchase_invoice_date TIMESTAMP DEFAULT NULL`);

@@ -268,26 +268,27 @@ app.post('/api/save', authMiddleware, async (req, res) => {
     }
     if (inventoryHistory) {
       await client.query('DELETE FROM inventory_history WHERE account_id=$1', [aid]);
+      // Keep the placeholders and the value list in step. A mismatch here only
+      // shows up as "INSERT has more expressions than target columns" at runtime,
+      // and it takes the whole save down, so assert it while we still can.
+      const INV_COLS = 33;
       for (const h of inventoryHistory) {
-        await client.query(
-          `INSERT INTO inventory_history (id, account_id, date, supplier, transport, notes, items,
-              supplier_invoice_no, supplier_gstin, supplier_state_code, purchase_invoice_date, purchase_taxable,
-              purchase_cgst, purchase_sgst, purchase_igst, purchase_cess,
-              is_import, reverse_charge, itc_eligible, ineligible_reason, expense_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-           ON CONFLICT (id,account_id) DO UPDATE SET
-              date=EXCLUDED.date, supplier=EXCLUDED.supplier, transport=EXCLUDED.transport,
-              notes=EXCLUDED.notes, items=EXCLUDED.items,
-              supplier_invoice_no=EXCLUDED.supplier_invoice_no,
-              supplier_gstin=EXCLUDED.supplier_gstin, supplier_state_code=EXCLUDED.supplier_state_code,
-              purchase_invoice_date=EXCLUDED.purchase_invoice_date, purchase_taxable=EXCLUDED.purchase_taxable,
-              purchase_cgst=EXCLUDED.purchase_cgst, purchase_sgst=EXCLUDED.purchase_sgst,
-              purchase_igst=EXCLUDED.purchase_igst, purchase_cess=EXCLUDED.purchase_cess,
-              is_import=EXCLUDED.is_import, reverse_charge=EXCLUDED.reverse_charge,
-              itc_eligible=EXCLUDED.itc_eligible, ineligible_reason=EXCLUDED.ineligible_reason,
-              expense_id=EXCLUDED.expense_id`,
-          [String(h.id).slice(0,50), aid, h.date||new Date(), String(h.supplier||'').slice(0,255),
-            Math.max(0,parseFloat(h.transport)||0), String(h.notes||'').slice(0,1000), JSON.stringify(h.items||[]),
+        const params = [String(h.id).slice(0,50), aid, h.date||new Date(),
+            String(pick(h,'destination','destination','')).slice(0,255),
+            Math.max(0,parseInt(pick(h,'parcel_count','parcelCount',0))||0),
+            String(pick(h,'supplier','supplier','')).slice(0,255),
+            Math.max(0,parseFloat(pick(h,'supplier_bill','supplierBill',0))||0),
+            Math.max(0,parseFloat(pick(h,'supplier_bill_paid','supplierBillPaid',0))||0),
+            String(pick(h,'supplier_bill_status','supplierBillStatus','paid')).slice(0,20),
+            String(pick(h,'supplier_bill_photo','supplierBillPhoto','')),
+            Math.max(0,parseFloat(pick(h,'transport','transport',0))||0),
+            String(pick(h,'transport_provider','transportProvider','')).slice(0,255),
+            Math.max(0,parseFloat(pick(h,'transport_cost','transportCost',0))||0),
+            Math.max(0,parseFloat(pick(h,'transport_paid','transportPaid',0))||0),
+            String(pick(h,'transport_status','transportStatus','paid')).slice(0,20),
+            String(pick(h,'transport_bill_photo','transportBillPhoto','')),
+            String(pick(h,'transport_cost_expense_id','transportCostExpenseId','')).slice(0,50),
+            String(h.notes||'').slice(0,1000), JSON.stringify(h.items||[]),
             String(pick(h,'supplier_invoice_no','supplierInvoiceNo','')).slice(0,64),
             String(pick(h,'supplier_gstin','supplierGstin','')).slice(0,15),
             String(pick(h,'supplier_state_code','supplierStateCode','')).slice(0,2),
@@ -300,7 +301,40 @@ app.post('/api/save', authMiddleware, async (req, res) => {
             !!(pick(h,'is_import','isImport',false)), !!pick(h,'reverse_charge','reverseCharge',false),
             pick(h,'itc_eligible','itcEligible',true)!==false,
             String(pick(h,'ineligible_reason','ineligibleReason','')),
-            String(pick(h,'expense_id','expenseId','')).slice(0,50)]
+            String(pick(h,'expense_id','expenseId','')).slice(0,50)];
+        if (params.length !== INV_COLS) {
+          throw new Error(`inventory_history row ${h.id}: ${params.length} values for ${INV_COLS} columns`);
+        }
+        await client.query(
+          `INSERT INTO inventory_history (id, account_id, date, destination, parcel_count, supplier,
+              supplier_bill, supplier_bill_paid, supplier_bill_status, supplier_bill_photo,
+              transport, transport_provider, transport_cost, transport_paid, transport_status,
+              transport_bill_photo, transport_cost_expense_id, notes, items,
+              supplier_invoice_no, supplier_gstin, supplier_state_code, purchase_invoice_date, purchase_taxable,
+              purchase_cgst, purchase_sgst, purchase_igst, purchase_cess,
+              is_import, reverse_charge, itc_eligible, ineligible_reason, expense_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+              $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33)
+           ON CONFLICT (id,account_id) DO UPDATE SET
+              date=EXCLUDED.date, destination=EXCLUDED.destination, parcel_count=EXCLUDED.parcel_count,
+              supplier=EXCLUDED.supplier,
+              supplier_bill=EXCLUDED.supplier_bill, supplier_bill_paid=EXCLUDED.supplier_bill_paid,
+              supplier_bill_status=EXCLUDED.supplier_bill_status, supplier_bill_photo=EXCLUDED.supplier_bill_photo,
+              transport=EXCLUDED.transport, transport_provider=EXCLUDED.transport_provider,
+              transport_cost=EXCLUDED.transport_cost, transport_paid=EXCLUDED.transport_paid,
+              transport_status=EXCLUDED.transport_status,
+              transport_bill_photo=EXCLUDED.transport_bill_photo,
+              transport_cost_expense_id=EXCLUDED.transport_cost_expense_id,
+              notes=EXCLUDED.notes, items=EXCLUDED.items,
+              supplier_invoice_no=EXCLUDED.supplier_invoice_no,
+              supplier_gstin=EXCLUDED.supplier_gstin, supplier_state_code=EXCLUDED.supplier_state_code,
+              purchase_invoice_date=EXCLUDED.purchase_invoice_date, purchase_taxable=EXCLUDED.purchase_taxable,
+              purchase_cgst=EXCLUDED.purchase_cgst, purchase_sgst=EXCLUDED.purchase_sgst,
+              purchase_igst=EXCLUDED.purchase_igst, purchase_cess=EXCLUDED.purchase_cess,
+              is_import=EXCLUDED.is_import, reverse_charge=EXCLUDED.reverse_charge,
+              itc_eligible=EXCLUDED.itc_eligible, ineligible_reason=EXCLUDED.ineligible_reason,
+              expense_id=EXCLUDED.expense_id`,
+          params
         );
       }
     }
@@ -477,8 +511,16 @@ const DELTA_TABLES = {
                        export_payment_type: '', original_invoice_no: '', original_invoice_period: '',
                        amendment_reason: '', customer_location: '',
                      }, push: 'sales' },
-  inventoryHistory:{ table: 'inventory_history', cols: ['id','date','supplier','transport','notes','items','supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date','purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess','is_import','reverse_charge','itc_eligible','ineligible_reason','expense_id'],
-                      defaults: { supplier_invoice_no:'', supplier_gstin:'', supplier_state_code:'' }, push: 'inventoryHistory' },
+  inventoryHistory:{ table: 'inventory_history', cols: ['id','date','destination','parcel_count','supplier',
+                        'supplier_bill','supplier_bill_paid','supplier_bill_status','supplier_bill_photo',
+                        'transport','transport_provider','transport_cost','transport_paid','transport_status','transport_bill_photo','transport_cost_expense_id',
+                        'notes','items','supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date','purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess','is_import','reverse_charge','itc_eligible','ineligible_reason','expense_id'],
+                      defaults: { destination:'', parcel_count:0, supplier_bill:0, supplier_bill_paid:0,
+                                  supplier_bill_status:'paid', supplier_bill_photo:'',
+                                  transport_provider:'', transport_cost:0, transport_paid:0,
+                                  transport_status:'paid', transport_bill_photo:'', transport_cost_expense_id:'',
+                                  supplier_invoice_no:'', supplier_gstin:'', supplier_state_code:'' },
+                      push: 'inventoryHistory' },
   udhaarRecords:   { table: 'udhaar_records',  cols: ['id','name','phone','reference','bills','total_bill','total_paid','total_pending','credit'], push: 'udhaarRecords' },
   advanceOrders:   { table: 'advance_orders',  cols: ['id','cust_name','phone','pack_time','adv_paid','notes','items','total','status','sale_id','transport','tax_applied','transport_cost','addl_paid','bills','location'], push: 'advanceOrders' },
   notes:           { table: 'notes',           cols: ['id','title','content','updated_at'], push: 'notes' },

@@ -24,7 +24,10 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
     WHERE table_name='inventory_history'
       AND column_name IN ('supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date',
                           'purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess',
-                          'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id')
+                          'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id',
+                          'destination','parcel_count','supplier_bill','supplier_bill_paid','supplier_bill_status',
+                          'supplier_bill_photo','transport_provider','transport_cost','transport_paid',
+                          'transport_status','transport_bill_photo','transport_cost_expense_id')
     ORDER BY column_name`);
 
   const prodCols = await q(`
@@ -59,7 +62,10 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
       'original_invoice_period','amendment_reason','customer_location'],
     'inventory_history columns': ['supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date',
       'purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess',
-      'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id'],
+      'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id',
+      'destination','parcel_count','supplier_bill','supplier_bill_paid','supplier_bill_status',
+      'supplier_bill_photo','transport_provider','transport_cost','transport_paid',
+      'transport_status','transport_bill_photo','transport_cost_expense_id'],
     'products columns': ['sac','uqc','is_nil','is_exempt','exempt_reason'],
     'accounts columns': ['gstin','legal_name','trade_name','pan','state_code','constitution',
       'filing_frequency','qrmp_type'],

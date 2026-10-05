@@ -45,7 +45,7 @@ node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
 # They must run from backend/ because dotenv reads .env relative to the cwd.
 cd backend
 node ../gst/tests/api.test.js      # 37 checks — HTTP surface, workflow, audit
-node ../gst/tests/delta.test.js    # 21 checks — partial save, upsert/delete
+node ../gst/tests/delta.test.js    # 24 checks — partial save, upsert/delete
 node ../gst/tests/verify-schema.js # asserts every GST column/table exists
 ```
 
@@ -174,6 +174,13 @@ than "no data captured". The block warns about exactly that as you type: a
 missing invoice number, a missing GSTIN, taxable value with no tax heads, and an
 implausible effective rate.
 
+Everything else the stock-entry form collects — destination, parcel count,
+supplier bill and its paid/due state, transport provider, transport cost, paid
+and status, and the linked transport expense — is now persisted too, and appears
+in the Inventory History export alongside the GST columns. None of it was being
+stored before, which meant the "Supplier Bill Paid/Due" reports were sorting on
+empty values.
+
 Only credit that reconciliation has *matched or accepted* reaches GSTR-3B Table
 4, split into 4(A)(1)(a) import of goods, 4(A)(5) reverse charge and 4(A)(7) all
 other ITC.
@@ -232,16 +239,14 @@ or enter the missing GSTINs for past customers by hand. Retroactively inventing
 place-of-supply values to make an old period tie out would be falsification, so
 the app does not offer it — an old period simply validates with blockers.
 
-**A pre-existing bug in stock entries, still open.** `inventory_history` only
-ever had `id, date, supplier, transport, notes, items` as columns. The stock-entry
-form collects considerably more — `destination`, `parcelCount`, `supplierBill`,
-`supplierBillPaid`, `supplierBillStatus`, `transportProvider`, `transportCost`,
-`transportPaid`, `transportStatus` — and **none of it was ever persisted**, so it
-was silently dropped on every save. This predates the GST work and was not
-introduced by it, but it means the Inventory History reports (including the
-"Supplier Bill Paid/Due" sorts) are working off incomplete data. The GST fields
-added here *are* persisted; the pre-GST fields still are not. Fixing that means
-adding the columns and a mapping, which is a separate change.
+**Saving is a partial update.** `/api/save` sends only the records that changed,
+not the whole dataset, so an edit touches one row instead of rewriting every
+row. The full-payload path still exists as a fallback. Two consequences worth
+knowing: a save that carries the whole dataset still does *delete-all-then-
+reinsert* inside a transaction, so a client holding empty arrays would clear the
+table — the transaction means a failure rolls back rather than half-applying; and
+record ids are compared as strings internally, because some tables use `SERIAL`
+and others use `VARCHAR`.
 
 ---
 

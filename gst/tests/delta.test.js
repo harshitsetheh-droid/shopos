@@ -163,6 +163,44 @@ const P = (n) => ({ id: n, name: 'P' + n, price: 10 * n, stock: n, catId: 1, emo
       inv2 && inv2.supplier_invoice_no === 'M/2026/0147' && Number(inv2.purchase_taxable) === 800,
       inv2 ? `${inv2.supplier_invoice_no}/${inv2.purchase_taxable}` : 'missing');
 
+    // The stock-entry form has always collected these, but inventory_history had
+    // no column for any of them, so they were dropped on every save and the
+    // "Supplier Bill Paid/Due" reports sorted on empty values.
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      delta: { mode: 'delta', changed: { inventoryHistory: { upserts: [{
+        id: 'INV-901', date: new Date().toISOString(),
+        destination: 'Pune', parcelCount: 7, supplier: 'Transport Co',
+        supplierBill: 840, supplierBillPaid: 400, supplierBillStatus: 'due',
+        transportProvider: 'Blue Dart', transportCost: 150, transportPaid: 150,
+        transportStatus: 'paid', transportCostExpenseId: 'EXP-9',
+        items: [{ name: 'X', qty: 50, purchasePrice: 6 }],
+      }], deletes: [] } } },
+    }) });
+    r = await api('/load');
+    const e2 = (r.data.inventoryHistory || []).find((x) => x.id === 'INV-901');
+    check('stock-entry fields persist (destination, parcels, supplier bill)',
+      e2 && e2.destination === 'Pune' && Number(e2.parcel_count) === 7
+      && Number(e2.supplier_bill) === 840 && Number(e2.supplier_bill_paid) === 400
+      && e2.supplier_bill_status === 'due',
+      e2 ? `${e2.destination}/${e2.parcel_count}/${e2.supplier_bill}/${e2.supplier_bill_paid}/${e2.supplier_bill_status}` : 'missing');
+    check('stock-entry transport fields persist',
+      e2 && e2.transport_provider === 'Blue Dart' && Number(e2.transport_cost) === 150
+      && Number(e2.transport_paid) === 150 && e2.transport_status === 'paid'
+      && e2.transport_cost_expense_id === 'EXP-9',
+      e2 ? `${e2.transport_provider}/${e2.transport_cost}/${e2.transport_paid}/${e2.transport_status}/${e2.transport_cost_expense_id}` : 'missing');
+
+    // And through the full-payload path, which is what a reload-then-save uses.
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      categories: [], products: [], sales: [], inventoryHistory: [Object.assign({}, e2)],
+      udhaarRecords: [], advanceOrders: [], notes: [], expenses: [],
+    }) });
+    r = await api('/load');
+    const e3 = (r.data.inventoryHistory || []).find((x) => x.id === 'INV-901');
+    check('stock-entry fields survive a full-payload save of a DB-shaped row',
+      e3 && e3.destination === 'Pune' && Number(e3.supplier_bill) === 840
+      && e3.transport_provider === 'Blue Dart' && Number(e3.transport_cost) === 150,
+      e3 ? `${e3.destination}/${e3.supplier_bill}/${e3.transport_provider}/${e3.transport_cost}` : 'missing');
+
     // noop delta is harmless
     r = await api('/save', { method: 'POST', body: JSON.stringify({ delta: { mode: 'noop' } }) });
     check('noop delta tolerated', r.status === 200, r.data.error || '');

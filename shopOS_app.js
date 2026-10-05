@@ -80,10 +80,22 @@ function _buildDelta(){
   for (const name of Object.keys(snap)){
     const prev = _syncSig[name] || {};
     const now = snap[name];
+    // Index the live records by STRING key.
+    //
+    // Object keys are always strings, but a record's id may be a number
+    // (products, categories, notes, expenses, customer ledgers all use SERIAL).
+    // Comparing `r.id === k` therefore failed for every one of those, so the
+    // upsert was dropped on the floor and the change never reached the server —
+    // the delta path silently discarded them all.
+    const byKey = {};
+    for (const rec of (live[name] || [])){
+      const id = keyFns[name](rec);
+      if (id != null) byKey[String(id)] = rec;
+    }
     const upserts = [];
     const deletes = [];
     for (const k of Object.keys(now)){
-      if (prev[k] !== now[k]) upserts.push(live[name].find((r) => keyFns[name](r) === k));
+      if (prev[k] !== now[k]) upserts.push(byKey[k]);
     }
     for (const k of Object.keys(prev)){
       if (!(k in now)) deletes.push(k);
@@ -5348,7 +5360,7 @@ function exportInventoryHistoryExcel(){
       return false;
     });
   }
-  const header=['INV ID','Date','Time','Destination','Supplier','Supplier Bill (₹)','Supplier Bill Paid (₹)','Supplier Bill Status','Transport Provider','Transport Cost (₹)','Transport Paid (₹)','Transport Status','Parcels','Notes','Product Name','Category','Boxes','Pieces','Total Pcs','Purchase Price/PC (₹)'];
+  const header=['INV ID','Date','Time','Destination','Supplier','Supplier Bill (₹)','Supplier Bill Paid (₹)','Supplier Bill Status','Transport Provider','Transport Cost (₹)','Transport Paid (₹)','Transport Status','Parcels','Supplier GSTIN','Supplier Inv No','Inv Date','Taxable (₹)','IGST (₹)','CGST (₹)','SGST (₹)','Cess (₹)','ITC Claimable','Notes','Product Name','Category','Boxes','Pieces','Total Pcs','Purchase Price/PC (₹)'];
   const rows=[header];
   data.forEach(entry=>{
     const d=new Date(entry.date);
@@ -5358,7 +5370,7 @@ function exportInventoryHistoryExcel(){
     const tp=entry.transportPaid??0;
     const sbp=entry.supplierBillPaid??0;
     if(!entry.items.length){
-      rows.push([entry.id,dateStr,timeStr,entry.destination||'',entry.supplier||'',entry.supplierBill||0,sbp,entry.supplierBillStatus==='due'?'Due':'Paid',entry.transportProvider||'',tc,tp,entry.transportStatus==='due'?'Due':'Paid',entry.parcelCount||0,entry.notes||'','','','','','','']);
+      rows.push([entry.id,dateStr,timeStr,entry.destination||'',entry.supplier||'',entry.supplierBill||0,sbp,entry.supplierBillStatus==='due'?'Due':'Paid',entry.transportProvider||'',tc,tp,entry.transportStatus==='due'?'Due':'Paid',entry.parcelCount||0,entry.supplierGstin||'',entry.supplierInvoiceNo||'',((entry.purchaseInvoiceDate||'')+'').slice(0,10),entry.purchaseTaxable||0,entry.purchaseIgst||0,entry.purchaseCgst||0,entry.purchaseSgst||0,entry.purchaseCess||0,(entry.itcEligible===false?'No':'Yes'),entry.notes||'','','','','','']);
     } else {
       entry.items.forEach((item,idx)=>{
         rows.push([
@@ -5375,6 +5387,15 @@ function exportInventoryHistoryExcel(){
           idx===0?tp:'',
           idx===0?(entry.transportStatus==='due'?'Due':'Paid'):'',
           idx===0?(entry.parcelCount||0):'',
+          idx===0?(entry.supplierGstin||''):'',
+          idx===0?(entry.supplierInvoiceNo||''):'',
+          idx===0?((entry.purchaseInvoiceDate||'')+'').slice(0,10):'',
+          idx===0?(entry.purchaseTaxable||0):'',
+          idx===0?(entry.purchaseIgst||0):'',
+          idx===0?(entry.purchaseCgst||0):'',
+          idx===0?(entry.purchaseSgst||0):'',
+          idx===0?(entry.purchaseCess||0):'',
+          idx===0?(entry.itcEligible===false?'No':'Yes'):'',
           idx===0?(entry.notes||''):'',
           item.productName,
           item.catName||'',
@@ -5388,7 +5409,7 @@ function exportInventoryHistoryExcel(){
     rows.push([]);
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols']=[{wch:14},{wch:16},{wch:10},{wch:18},{wch:18},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:14},{wch:14},{wch:8},{wch:22},{wch:24},{wch:16},{wch:8},{wch:8},{wch:10},{wch:16}];
+  ws['!cols']=[{wch:14},{wch:16},{wch:10},{wch:18},{wch:18},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:14},{wch:14},{wch:8},{wch:16},{wch:16},{wch:12},{wch:12},{wch:12},{wch:12},{wch:10},{wch:10},{wch:22},{wch:24},{wch:16},{wch:8},{wch:8},{wch:10},{wch:16}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Inventory History');
   if(supplierTransportLog.length){
@@ -5408,7 +5429,7 @@ function exportInventoryHistoryExcel(){
 function exportSingleInvEntry(id){
   const entry=inventoryHistory.find(e=>e.id===id);
   if(!entry){notify('Entry not found','error');return;}
-  const header=['INV ID','Date','Time','Destination','Supplier','Supplier Bill (₹)','Supplier Bill Paid (₹)','Supplier Bill Status','Transport Provider','Transport Cost (₹)','Transport Paid (₹)','Transport Status','Parcels','Notes','Product Name','Category','Boxes','Pieces','Total Pcs','Purchase Price/PC (₹)'];
+  const header=['INV ID','Date','Time','Destination','Supplier','Supplier Bill (₹)','Supplier Bill Paid (₹)','Supplier Bill Status','Transport Provider','Transport Cost (₹)','Transport Paid (₹)','Transport Status','Parcels','Supplier GSTIN','Supplier Inv No','Inv Date','Taxable (₹)','IGST (₹)','CGST (₹)','SGST (₹)','Cess (₹)','ITC Claimable','Notes','Product Name','Category','Boxes','Pieces','Total Pcs','Purchase Price/PC (₹)'];
   const rows=[header];
   const d=new Date(entry.date);
   const dateStr=d.toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric'});
@@ -5431,6 +5452,15 @@ function exportSingleInvEntry(id){
       idx===0?tp:'',
       idx===0?(entry.transportStatus==='due'?'Due':'Paid'):'',
       idx===0?(entry.parcelCount||0):'',
+      idx===0?(entry.supplierGstin||''):'',
+      idx===0?(entry.supplierInvoiceNo||''):'',
+      idx===0?((entry.purchaseInvoiceDate||'')+'').slice(0,10):'',
+      idx===0?(entry.purchaseTaxable||0):'',
+      idx===0?(entry.purchaseIgst||0):'',
+      idx===0?(entry.purchaseCgst||0):'',
+      idx===0?(entry.purchaseSgst||0):'',
+      idx===0?(entry.purchaseCess||0):'',
+      idx===0?(entry.itcEligible===false?'No':'Yes'):'',
       idx===0?(entry.notes||''):'',
       item.productName,
       item.catName||'',
@@ -7603,9 +7633,16 @@ function mapInventoryHistory(h){
     supplier:h.supplier||'',
     supplierBill:Number(h.supplier_bill||0), supplierBillPaid:Number(h.supplier_bill_paid||0),
     supplierBillStatus:h.supplier_bill_status||'paid',
+    supplierBillPhoto:h.supplier_bill_photo||'',
     transportProvider:h.transport_provider||'',
-    transportCost:Number(h.transport_cost||0), transportPaid:Number(h.transport_paid||0),
+    // `transport` is the original column; transport_cost is the newer one and
+    // the reports already prefer it.
+    transport:Number(h.transport||0),
+    transportCost:Number(h.transport_cost||h.transport||0),
+    transportPaid:Number(h.transport_paid||0),
     transportStatus:h.transport_status||'paid',
+    transportBillPhoto:h.transport_bill_photo||'',
+    transportCostExpenseId:h.transport_cost_expense_id||'',
     notes:h.notes||'', items:h.items||[],
     // ── GST purchase fields (see gst/index.js normalisePurchase) ──
     supplierInvoiceNo:h.supplier_invoice_no||'',
@@ -7733,7 +7770,13 @@ async function loadAllData(){
     if(data.udhaarRecords) udhaarRecords = data.udhaarRecords.map(mapUdhaar);
     if(data.advanceOrders) advanceOrders = data.advanceOrders.map(mapAdvance);
     _custPhoneCache={sig:'',map:null};
-    if(data.notes) notes = data.notes;
+    // Notes were loaded raw while the save path reads/writes `updatedAt`, so a
+    // reloaded note showed a blank timestamp and the next save overwrote the real
+    // one with "now".
+    if(data.notes) notes = data.notes.map(n => ({
+      id:n.id, title:n.title||'', content:n.content||'',
+      updatedAt:n.updatedAt||n.updated_at||null
+    }));
     if(data.customerLedgers) customerLedgers = data.customerLedgers.map(l => ({
       id:l.id, customerName:l.customer_name||l.customerName, phone:l.phone||'',
       location:l.location||null, entries:l.entries||[]
