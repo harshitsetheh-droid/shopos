@@ -682,8 +682,27 @@ function renderGstGstr3b(){
           <tr><td>4(C) Ineligible ITC (Sec 17(5))</td><td class="r">${gstRs(b.table4.ineligible)}</td></tr>
           <tr class="gst-total"><td><strong>Net ITC available</strong></td><td class="r"><strong>${gstRs(b.table4.netAvailable)}</strong></td></tr>
         </tbody></table>
+      ${(() => {
+        // A 4(C) or 4(B) figure on its own is not actionable — name the documents
+        // behind it, so the user can see which purchase was blocked and why.
+        const inv = ((d && d.recon2b && d.recon2b.summary && d.recon2b.summary.ineligibleRows) || []);
+        const rev = ((d && d.recon2b && d.recon2b.summary && d.recon2b.summary.reversedRows) || []);
+        if (!inv.length && !rev.length) return '';
+        return `<table class="gst-table" style="margin-top:12px;">
+          <thead><tr><th>Not claimed</th><th>Supplier GSTIN</th><th>Invoice</th><th>Tax</th><th>Why</th></tr></thead>
+          <tbody>${inv.map((x) => `<tr>
+            <td>4(C) Ineligible</td><td>${gstEscape(x.gstin || '')}</td>
+            <td>${gstEscape(x.invoiceNo || '')}</td>
+            <td class="r">${gstRs(x.taxPaise)}</td>
+            <td>${gstEscape(x.reason || '')}</td></tr>`).join('')}${rev.map((x) => `<tr>
+            <td>4(B) Reversed</td><td>${gstEscape(x.gstin || '')}</td>
+            <td>${gstEscape(x.invoiceNo || '')}</td>
+            <td class="r">${gstRs(x.taxPaise)}</td>
+            <td>Supplier debit note</td></tr>`).join('')}</tbody></table>`;
+      })()}
       <div class="gst-note" style="margin-top:10px;">
         Only credit from entries you matched or accepted in <strong>2B Recon</strong> is included here.
+        Credit you marked ineligible, and supplier debit notes, are subtracted above rather than dropped.
       </div></div>
 
     <div class="card"><div class="card-title">Liability &amp; set-off</div>

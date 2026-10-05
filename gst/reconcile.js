@@ -215,6 +215,44 @@ function reconcile2B(books, twoB, cfg, decisions) {
     r.note = dec.get(r.key + ':note') || '';
     const tax = itcOf(r);
     r.itcPaise = tax;
+
+    // A supplier debit note reverses credit already taken. itcOf() returns 0 for
+    // it so it is never claimed, but the amount belongs in Table 4(B) rather than
+    // disappearing from the return. A matched pair keeps the 2B row in row2b; a
+    // 2B-only row keeps it in row.
+    const twoBSide = r.row2b || (r.side === '2b' ? r.row : null) || null;
+    if (twoBSide && twoBSide.invoiceType === 'D') {
+      const raw = nz(twoBSide.igstPaise) + nz(twoBSide.cgstPaise)
+        + nz(twoBSide.sgstPaise) + nz(twoBSide.cessPaise);
+      summary.reversed += raw;
+      summary.reversedRows.push({
+        invoiceNo: twoBSide.invoiceNo || '',
+        gstin: twoBSide.gstin || '',
+        taxPaise: raw,
+      });
+      r.eligible = false;
+      r.reversesCredit = raw;
+      continue;
+    }
+
+    // A purchase the user has marked ineligible is never claimable, whatever the
+    // reconciliation says — a perfect 2B match cannot override Section 17(5).
+    // It is reported in Table 4(C) instead of vanishing from the return. The
+    // recorded decision is left as-is, since it still describes the 2B comparison.
+    const bkRow = r.rowBooks || (r.side === 'books' ? r.row : null) || null;
+    if (bkRow && bkRow.itcEligible === false) {
+      summary.ineligible += tax;
+      summary.ineligibleRows.push({
+        invoiceNo: bkRow.invoiceNo || '',
+        gstin: bkRow.gstin || '',
+        reason: bkRow.ineligibleReason || 'Not eligible for credit',
+        taxPaise: tax,
+      });
+      r.eligible = false;
+      continue;
+    }
+    r.eligible = true;
+
     switch (r.bucket) {
       case 'matched':
         summary.matched++;
@@ -294,6 +332,15 @@ function emptySummary() {
     missingInBooks: 0, missingIn2B: 0, pending: 0,
     claimable: ZERO, itcAtRisk: ZERO,
     claimableByHead: { igst: ZERO, cgst: ZERO, sgst: ZERO, cess: ZERO },
+    // GSTR-3B Table 4(C): credit the user has declared ineligible (Section 17(5)).
+    // The purchase form collects itc_eligible and a reason, and they used to be
+    // read but never used, so 4(C) was always zero on a real return.
+    ineligible: ZERO,
+    ineligibleRows: [],
+    // 4(B): credit reversed by a supplier debit note. itcOf() zeroes the tax so it
+    // is never claimed; this keeps the amount visible in the return.
+    reversed: ZERO,
+    reversedRows: [],
     // GSTR-3B Table 4(A) buckets for the accepted credit. sum of these === claimable.
     table4: {
       importGoods: ZERO,   // 4(A)(1)(a) import of goods

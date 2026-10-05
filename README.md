@@ -34,7 +34,7 @@ Open the printed URL, sign up, and press **Alt+G** for the GST screen.
 ### Tests
 
 ```bash
-# 172 unit tests, no database needed
+# 176 unit tests, no database needed
 node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
           "gst/tests/classify.test.js" "gst/tests/gstin.test.js" \
           "gst/tests/gstr1.test.js" "gst/tests/gstr3b.test.js" \
@@ -135,6 +135,14 @@ automatically. Only `matched` and `matched_tolerance` (within
 `reconciliation.toleranceRupees`) count as `accept` and feed GSTR-3B Table 4.
 This is deliberate: auto-claiming a doubtful credit is how input tax gets
 reversed with interest.
+
+**Credit that is not claimed still gets reported.** Two cases reduce Table 4
+without disappearing from the return. A purchase you marked ineligible
+(`itc_eligible` off, with a reason) goes to **4(C)** — a clean 2B match cannot
+override Section 17(5), so accepting that row in the recon screen still will not
+claim it. A supplier debit note goes to **4(B)** as credit reversed. Both list
+the invoice and the reason underneath the table, so a non-zero 4(B) or 4(C) is
+something you can act on rather than a number to wonder about.
 
 The parser accepts both the portal's own field names (`inum`, `taxval`, `iamt`,
 `camt`, `samt`, `cessamt`, `invty`) and the longer aliases used by hand-typed

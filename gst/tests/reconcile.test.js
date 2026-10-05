@@ -157,6 +157,71 @@ test('parse2B marks debit notes as ITC-ineligible', () => {
   assert.strictEqual(rows[0].itcClaimed, false);
 });
 
+// A purchase flagged itc_eligible = false was still claimable if its 2B row
+// matched cleanly, and its tax was reported nowhere at all. Section 17(5) credit
+// belongs in GSTR-3B Table 4(C), so it is now excluded from the claim and shown
+// there with the reason the user recorded.
+const eligBooks = () => [
+  { key: 'A|1', gstin: GSTIN_UP, invoiceNo: 'INV-001', date: '2026-08-15',
+    taxablePaise: 100000n, igstPaise: 18000n, cgstPaise: 0n, sgstPaise: 0n, cessPaise: 0n,
+    itcEligible: true },
+  { key: 'B|2', gstin: GSTIN_UP, invoiceNo: 'INV-002', date: '2026-08-16',
+    taxablePaise: 50000n, igstPaise: 0n, cgstPaise: 2500n, sgstPaise: 2500n, cessPaise: 0n,
+    itcEligible: false, ineligibleReason: 'Sec 17(5) — staff vehicle' },
+];
+const elig2B = () => parse2B({ b2b: [
+  { ctin: GSTIN_UP, inum: 'INV-001', idt: '15/08/2026', val: 1180, taxableVal: 1000, igstAmt: 180, ity: 'R' },
+  { ctin: GSTIN_UP, inum: 'INV-002', idt: '16/08/2026', val: 550, taxableVal: 500, cgstAmt: 25, sgstAmt: 25, ity: 'R' },
+]}, cfg);
+
+test('credit marked ineligible is not claimed, and lands in Table 4(C)', () => {
+  const r = reconcile2B(eligBooks(), elig2B(), cfg, new Map());
+  assert.strictEqual(r.summary.claimable, 18000n, 'only the eligible purchase is claimed');
+  assert.strictEqual(r.summary.ineligible, 5000n);
+  assert.strictEqual(r.summary.ineligibleRows.length, 1);
+  assert.strictEqual(r.summary.ineligibleRows[0].invoiceNo, 'INV-002');
+  assert.ok(/17\(5\)/.test(r.summary.ineligibleRows[0].reason), r.summary.ineligibleRows[0].reason);
+  // 4(A) buckets still sum to exactly the claimed total
+  const sum = Object.values(r.summary.table4).reduce((a, x) => a + x, 0n);
+  assert.strictEqual(sum, r.summary.claimable);
+});
+
+test('accepting an ineligible purchase in the UI still cannot claim it', () => {
+  const r = reconcile2B(eligBooks(), elig2B(), cfg, new Map([['B|2', 'accept']]));
+  assert.strictEqual(r.summary.claimable, 18000n, 'a clean 2B match does not override Sec 17(5)');
+  assert.strictEqual(r.summary.ineligible, 5000n);
+});
+
+// itcOf() returns 0 for a supplier debit note so it is never claimed, but the
+// amount was then reported nowhere. It belongs in Table 4(B) as credit reversed.
+test('a supplier debit note is reported in Table 4(B) as credit reversed', () => {
+  const books = eligBooks().slice(0, 1);
+  const twoB = parse2B({ b2b: [
+    { ctin: GSTIN_UP, inum: 'INV-001', idt: '15/08/2026', val: 1180, taxableVal: 1000, igstAmt: 180, ity: 'R' },
+    { ctin: GSTIN_UP, inum: 'DN-001', idt: '17/08/2026', val: 60, taxableVal: 50, igstAmt: 9, ity: 'D' },
+  ] }, cfg);
+  const r = reconcile2B(books, twoB, cfg, new Map());
+  assert.strictEqual(r.summary.claimable, 18000n, 'the debit note is not claimed');
+  assert.strictEqual(r.summary.reversed, 900n);
+  assert.strictEqual(r.summary.reversedRows[0].invoiceNo, 'DN-001');
+});
+
+test('a debit note matched to a books row is still credit reversed', () => {
+  const books = [
+    ...eligBooks().slice(0, 1),
+    { key: 'C|DN-001', gstin: GSTIN_UP, invoiceNo: 'DN-001', date: '2026-08-17',
+      taxablePaise: 5000n, igstPaise: 900n, cgstPaise: 0n, sgstPaise: 0n, cessPaise: 0n,
+      itcEligible: true },
+  ];
+  const twoB = parse2B({ b2b: [
+    { ctin: GSTIN_UP, inum: 'INV-001', idt: '15/08/2026', val: 1180, taxableVal: 1000, igstAmt: 180, ity: 'R' },
+    { ctin: GSTIN_UP, inum: 'DN-001', idt: '17/08/2026', val: 60, taxableVal: 50, igstAmt: 9, ity: 'D' },
+  ] }, cfg);
+  const r = reconcile2B(books, twoB, cfg, new Map());
+  assert.strictEqual(r.summary.claimable, 18000n);
+  assert.strictEqual(r.summary.reversed, 900n);
+});
+
 test('parse2B rejects a non-JSON payload with a clear error', () => {
   assert.throws(() => parse2B('not json', cfg), /not valid JSON/);
 });

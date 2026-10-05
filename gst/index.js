@@ -65,6 +65,14 @@ function buildReturn(input) {
       // the return.
       ...(recon.summary.table4 || {}),
       creditByHead: recon.summary.claimableByHead,
+      // 4(B) credit reversed — supplier debit notes. itcOf() zeroes their tax so
+      // it is never claimed, and without this the amount simply disappeared from
+      // the return instead of being reported in 4(B).
+      reversed: recon.summary.reversed || 0n,
+      // 4(C): credit the user declared ineligible (Sec 17(5)). Previously never
+      // passed, so 4(C) was always zero and blocked credit vanished from the
+      // return rather than being reported there.
+      ineligible: recon.summary.ineligible || 0n,
     },
     input.manual3B || {},
     g1,
