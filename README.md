@@ -34,29 +34,41 @@ Open the printed URL, sign up, and press **Alt+G** for the GST screen.
 ### Tests
 
 ```bash
-# 185 unit tests, no database needed
+# 216 unit tests, no database needed
 node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
           "gst/tests/classify.test.js" "gst/tests/gstin.test.js" \
           "gst/tests/gstr1.test.js" "gst/tests/gstr3b.test.js" \
           "gst/tests/validate.test.js" "gst/tests/reconcile.test.js" \
-          "gst/tests/schema.test.js" "gst/tests/client.test.js"
+          "gst/tests/schema.test.js" "gst/tests/client.test.js" \
+          "gst/tests/advance-orders.test.js"
 
-# API + delta-save suites — these spawn their own server and need the database.
-# They must run from backend/ because dotenv reads .env relative to the cwd.
+# API + delta-save + GST opt-in suites — these spawn their own server and need
+# the database. They must run from backend/ because dotenv reads .env relative to
+# the cwd. Run them directly, NOT via `node --test "gst/tests/*.test.js"`: they
+# are self-driving scripts that boot a server and call process.exit(), so the test
+# runner reports each whole file as a failure even when every check inside passes.
 cd backend
-node ../gst/tests/api.test.js      # 40 checks — HTTP surface, workflow, audit
-node ../gst/tests/delta.test.js    # 28 checks — partial save, upsert/delete
-node ../gst/tests/verify-schema.js # asserts every GST column/table exists
+node ../gst/tests/api.test.js        # 40 checks — HTTP surface, workflow, audit
+node ../gst/tests/delta.test.js      # 28 checks — partial save, upsert/delete
+node ../gst/tests/gst-optin.test.js  # 20 checks — GST-off docs carry no tax
+node ../gst/tests/verify-schema.js   # asserts every GST column/table exists
 ```
 
 `gst/tests/client.test.js` is the odd one out: it statically checks
 `shopOS_app.js` and `shopOS_index.html` rather than the GST engine. Those two
-files are ~8700 lines loaded as plain `<script>`, so nothing else executes them
+files are ~9500 lines loaded as plain `<script>`, so nothing else executes them
 and nothing type-checks them. It catches the mistakes that actually happen there:
 a declaration initialised from its own name (which throws a ReferenceError at
 runtime but parses fine), a local shadowing a top-level function, an `onclick`
 naming a function that no longer exists, and a first-party `<script>` that lost
 its `?v=` cache-buster. Each of those passed all 245 other tests.
+
+`gst/tests/advance-orders.test.js` follows the same idea but goes further: rather
+than pattern-matching the source, it lifts the real functions out of
+`shopOS_app.js` and runs them inside a `vm` sandbox with a minimal `document` stub.
+A copied reimplementation would keep passing after the shipped code regressed, so
+the money tests (excess advance, GST toggle, retained credit) execute the code
+that actually runs in the browser.
 
 There are no extra test dependencies — it is `node --test` and nothing else.
 Each API suite starts its own server on port 3111/3112, creates a throwaway
@@ -269,6 +281,41 @@ Two things that used to make the ceiling much lower are now fixed: a
 `Math.max(...rows)` call threw "Maximum call stack size exceeded" past ~125k
 records and killed the app on load (and failed every save server-side), and long
 lists rendered every row, so 2,000 advance orders meant 41,000 DOM nodes.
+
+## Advance orders, advances and udhaar
+
+An advance order is a booking, not a sale: nothing enters the books or any GST
+return until you bill it. Three things about it are worth knowing because they
+were wrong and cost money.
+
+**GST is off unless you turn it on.** Each order carries its own "Apply GST on
+this order" checkbox, which is unchecked every time the form opens. With it off,
+the invoice is a Bill of Supply: `taxApplied:false`, every item rate zeroed, and
+not one paisa of CGST/SGST/IGST/cess is calculated, printed or reported — even
+when the product master carries an 18% rate. Nothing is ever inferred from the
+item master. A soft, dismissible "This sale may need GST" notice appears when the
+box is off but the items do have a rate; it never blocks saving.
+
+A GST-off document still has a turnover, so it is reported in GSTR-1's
+nil/exempt/non-GST table and 3.1(e) — omitting it entirely would under-report
+revenue. It simply contributes no tax. `gst/tests/gst-optin.test.js` pins this
+down end to end: identical products, one order with the box off and one with it
+on, and the return must show ₹0 tax for the first and ₹18 for the second.
+
+**Excess advance is kept, not lost.** Bill a ₹1,000 order against a ₹5,000
+advance and the ₹4,000 does not leave the shop. It is applied to any udhaar the
+customer already owes, and whatever remains is retained on the order as
+`advanceUnused` — available against that order's next invoice. Previously the
+leftover was announced in a toast that vanished on reload, with nothing recorded.
+
+**Settled udhaar bills are never deleted.** Paying off a record used to collapse
+its bills down to the last one, so settling three bills destroyed the first two
+and the customer's `totalBill` silently shrank. Settled bills are history.
+
+> Verify the treatment of tax on advances and receipts with your CA against the
+> notifications current at the time of filing. The rules around tax on advance
+> payments differ for goods and for services, and the position on advances has
+> changed more than once.
 
 Going beyond ~500k means server-side pagination, so the browser never holds the
 whole table, and change tracking (an `updated_at` watermark) so a save sends only

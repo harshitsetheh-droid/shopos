@@ -1260,6 +1260,22 @@
       <div class="form-group"><label>Advance Paid (₹)</label><input id="advPaid" type="number" min="0" step="0.01" placeholder="0.00"></div>
     </div>
     <div class="form-group" style="margin-bottom:14px;"><label>Notes</label><input id="advNotes" placeholder="Any special instructions..."></div>
+    <!-- GST is opt-in. Off by default, and the item master's rate is never applied
+         automatically: no tax means no CGST/SGST/IGST/cess anywhere. -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text);margin:0;font-weight:600;">
+        <input type="checkbox" id="advGstChk" onchange="updateAdvGstPreview()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
+        Apply GST on this order
+      </label>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5;">
+        Leave off for a plain bill — no CGST/SGST/IGST/cess is calculated, printed or reported.
+      </div>
+      <div id="advGstPreview" style="font-size:12px;margin-top:8px;"></div>
+      <div id="advGstWarn" style="display:none;font-size:11px;color:var(--orange,#fdaf74);margin-top:8px;padding:8px 10px;background:rgba(253,191,74,.10);border:1px solid rgba(253,191,74,.35);border-radius:6px;line-height:1.5;">
+        ⚠️ This sale may need GST — some items in this order have a GST rate in their master.
+        <button class="btn btn-ghost btn-sm" style="margin-top:6px;font-size:10px;" onclick="this.parentElement.style.display='none';">Got it</button>
+      </div>
+    </div>
     <div class="form-group" style="margin-bottom:14px;">
       <label>📍 Delivery / Shop Location</label>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -1488,7 +1504,7 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=80"></script>
+<script src="shopOS_app.js?v=84"></script>
 <script src="gst_ui.js?v=15"></script>
 
 <!-- Calendar Overlay -->

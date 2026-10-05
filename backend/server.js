@@ -355,10 +355,10 @@ app.post('/api/save', authMiddleware, async (req, res) => {
       await client.query('DELETE FROM advance_orders WHERE account_id=$1', [aid]);
       for (const o of advanceOrders) {
         await client.query(
-          `INSERT INTO advance_orders (id, account_id, cust_name, phone, pack_time, adv_paid, notes, items, total, status, sale_id, transport, tax_applied, transport_cost, addl_paid, bills, location)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-           ON CONFLICT (id,account_id) DO UPDATE SET cust_name=EXCLUDED.cust_name, phone=EXCLUDED.phone, pack_time=EXCLUDED.pack_time, adv_paid=EXCLUDED.adv_paid, notes=EXCLUDED.notes, items=EXCLUDED.items, total=EXCLUDED.total, status=EXCLUDED.status, sale_id=EXCLUDED.sale_id, transport=EXCLUDED.transport, tax_applied=EXCLUDED.tax_applied, transport_cost=EXCLUDED.transport_cost, addl_paid=EXCLUDED.addl_paid, bills=EXCLUDED.bills, location=EXCLUDED.location`,
-          [String(o.id).slice(0,50), aid, String(o.custName).slice(0,255), String(o.phone||'').slice(0,20), o.packTime||null, Math.max(0,parseFloat(o.advPaid)||0), String(o.notes||'').slice(0,1000), JSON.stringify(o.items||[]), parseFloat(o.total)||0, String(o.status||'scheduled').slice(0,50), o.saleId||null, o.transport ? JSON.stringify(o.transport) : null, !!o.taxApplied, Math.max(0,parseFloat(o.transportCost)||0), Math.max(0,parseFloat(o.addlPaid)||0), JSON.stringify(o.bills||[]), o.location ? JSON.stringify(o.location) : null]
+          `INSERT INTO advance_orders (id, account_id, cust_name, phone, pack_time, adv_paid, notes, items, total, status, sale_id, transport, tax_applied, transport_cost, addl_paid, bills, location, gst_enabled, advance_unused)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+           ON CONFLICT (id,account_id) DO UPDATE SET cust_name=EXCLUDED.cust_name, phone=EXCLUDED.phone, pack_time=EXCLUDED.pack_time, adv_paid=EXCLUDED.adv_paid, notes=EXCLUDED.notes, items=EXCLUDED.items, total=EXCLUDED.total, status=EXCLUDED.status, sale_id=EXCLUDED.sale_id, transport=EXCLUDED.transport, tax_applied=EXCLUDED.tax_applied, transport_cost=EXCLUDED.transport_cost, addl_paid=EXCLUDED.addl_paid, bills=EXCLUDED.bills, location=EXCLUDED.location, gst_enabled=EXCLUDED.gst_enabled, advance_unused=EXCLUDED.advance_unused`,
+          [String(o.id).slice(0,50), aid, String(o.custName).slice(0,255), String(o.phone||'').slice(0,20), o.packTime||null, Math.max(0,parseFloat(o.advPaid)||0), String(o.notes||'').slice(0,1000), JSON.stringify(o.items||[]), parseFloat(o.total)||0, String(o.status||'scheduled').slice(0,50), o.saleId||null, o.transport ? JSON.stringify(o.transport) : null, !!o.taxApplied, Math.max(0,parseFloat(o.transportCost)||0), Math.max(0,parseFloat(o.addlPaid)||0), JSON.stringify(o.bills||[]), o.location ? JSON.stringify(o.location) : null, !!o.gstEnabled, Math.max(0,parseFloat(o.advanceUnused)||0)]
         );
       }
     }
@@ -518,7 +518,7 @@ const DELTA_TABLES = {
                                   supplier_invoice_no:'', supplier_gstin:'', supplier_state_code:'' },
                       push: 'inventoryHistory' },
   udhaarRecords:   { table: 'udhaar_records',  cols: ['id','name','phone','reference','bills','total_bill','total_paid','total_pending','credit'], push: 'udhaarRecords' },
-  advanceOrders:   { table: 'advance_orders',  cols: ['id','cust_name','phone','pack_time','adv_paid','notes','items','total','status','sale_id','transport','tax_applied','transport_cost','addl_paid','bills','location'], push: 'advanceOrders' },
+  advanceOrders:   { table: 'advance_orders',  cols: ['id','cust_name','phone','pack_time','adv_paid','notes','items','total','status','sale_id','transport','tax_applied','transport_cost','addl_paid','bills','location','gst_enabled','advance_unused'], push: 'advanceOrders' },
   notes:           { table: 'notes',           cols: ['id','title','content','updated_at'], push: 'notes' },
   customerLedgers: { table: 'customer_ledgers',cols: ['id','customer_name','phone','entries','location'], push: 'customerLedgers' },
   expenses:        { table: 'expenses',        cols: ['id','name','amount','category','notes','date','photo'], push: 'expenses' },

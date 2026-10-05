@@ -126,6 +126,10 @@ async function _doSave(){
 }
 function _localDateStr(d){
   if(!d) d = new Date();
+  // An unparseable date yields NaN in every field, which stringifies to
+  // "NaN-NaN-NaNTNaN:NaN:NaN" and is then stored as a real sale date. Fall back to
+  // today rather than writing a corrupt timestamp into the books.
+  if(!(d instanceof Date) || isNaN(d.getTime())) d = new Date();
   const pad = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
@@ -4348,9 +4352,9 @@ function recordUdPayment(){
   });
   recalcUd(rec);
   const returnChange=remaining>0?remaining:0;
-  if(rec.totalPending<=0&&rec.bills.length>1){
-    rec.bills=[rec.bills[rec.bills.length-1]]; recalcUd(rec);
-  }
+  // Settled bills are KEPT, never deleted. The old code collapsed the history down
+  // to the last bill whenever the record cleared, so paying off 3 bills destroyed
+  // the earlier two - the customer's receipt history and totalBill silently shrank.
   addLedgerEntry(rec.name, rec.phone, _localDateStr(), `Payment received - ₹${fmt(amt-returnChange)} applied to bills`, 0, amt-returnChange);
   closeModal('udhaarDetailModal'); renderUdhaar(); saveAllData();
   if(returnChange>0){
@@ -5872,6 +5876,9 @@ function openAdvanceOrder(){
   _advRowCount=0;
   document.getElementById('advRows').innerHTML='';
   document.getElementById('advTotal').textContent='';
+  // GST is opt-in and must default OFF every time the form opens, so a previous
+  // order's tick can never silently carry tax into a new plain bill.
+  const gchk=document.getElementById('advGstChk'); if(gchk) gchk.checked=false;
   comboClose('advCustWrap');
   addAdvRow();
   document.getElementById('advanceModal').classList.add('open');
@@ -5911,7 +5918,77 @@ function calcAdvTotal(){
     if(p&&qty>0) total+=p.price*qty;
   }
   document.getElementById('advTotal').textContent=total>0?`Total: ₹${fmt(total)}`:'';
+  // Keep the GST preview and the soft warning in step with the line items.
+  if(typeof updateAdvGstPreview==='function') updateAdvGstPreview();
 }
+/** Rows currently in the advance-order form, with their rupee amounts. */
+function advFormItems(){
+  const items=[];
+  let total=0;
+  for(let i=0;i<_advRowCount;i++){
+    const pid=parseInt(document.getElementById(`advProd_${i}`)?.value)||0;
+    const qty=parseInt(document.getElementById(`advQty_${i}`)?.value)||0;
+    const p=products.find(x=>x.id===pid);
+    if(p&&qty>0){ items.push({productId:p.id,productName:p.name,emoji:p.emoji,price:p.price,qty}); total+=p.price*qty; }
+  }
+  return { items, total };
+}
+
+/**
+ * GST is opt-in per order. With the box off this returns zero and the caller must
+ * store zero - the item master's rate is never applied on its own.
+ */
+function advOrderTax(gstOn, items){
+  if(!gstOn) return { tax:0, cgst:0, sgst:0, igst:0, cess:0 };
+  const intra=isIntrastate();
+  let cgst=0, sgst=0, igst=0, cess=0;
+  for(const it of items){
+    const tr=itemTaxRates(it.p, intra);
+    cgst+=it.amount*tr.cgst/100;
+    sgst+=it.amount*tr.sgst/100;
+    igst+=it.amount*tr.igst/100;
+    cess+=it.amount*((it.p.cess||0)/100);
+  }
+  const r2=n=>Math.round(n*100)/100;
+  return { tax:r2(cgst+sgst+igst+cess), cgst:r2(cgst), sgst:r2(sgst), igst:r2(igst), cess:r2(cess) };
+}
+
+/** Order items mapped to what advOrderTax needs: the product master + line amount. */
+function advTaxItems(orderItems){
+  return orderItems.map(i=>{ const p=products.find(x=>x.id===i.productId);
+    return { p:p||{ price:i.price, gst:0, cgst:0, sgst:0, igst:0, cess:0 }, amount:i.price*i.qty }; });
+}
+
+/** Toggle state, tax preview, and the soft "may need GST" warning. Never blocks. */
+function updateAdvGstPreview(){
+  const out=document.getElementById('advGstPreview');
+  const warn=document.getElementById('advGstWarn');
+  if(!out) return;
+  const on=!!document.getElementById('advGstChk')?.checked;
+  const { items, total }=advFormItems();
+  const ru=n=>'&#8377;'+fmt(n);
+  if(!on){
+    out.innerHTML='<span style="color:var(--muted);">GST off - total '+ru(total)+', no tax.</span>';
+    // Warn precisely here: a non-GST bill whose items DO carry a master rate is
+    // the case worth flagging. Never blocks saving.
+    if(warn) warn.style.display = advItemsTaxableInMaster(items) ? 'block' : 'none';
+    return;
+  }
+  const t=advOrderTax(true, items.map(i=>{ const p=products.find(x=>x.id===i.productId);
+    return { p:p||{}, amount:i.price*i.qty }; }));
+  const row=(k,v)=>'<div style="display:flex;justify-content:space-between;"><span>'+k+'</span><span>'+ru(v)+'</span></div>';
+  out.innerHTML = row('Taxable',total)+row('IGST',t.igst)+row('CGST',t.cgst)+row('SGST',t.sgst)
+    + '<div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--border);padding-top:4px;margin-top:4px;"><span>Invoice total</span><span>'+ru(total+t.tax)+'</span></div>';
+  // GST is on, so there is nothing to warn about.
+  if(warn) warn.style.display='none';
+}
+
+/** Any line whose product master carries a non-zero GST rate. */
+function advItemsTaxableInMaster(items){
+  return items.some(i=>{ const p=products.find(x=>x.id===i.productId);
+    return p&&((p.gst||0)>0||(p.cgst||0)>0||(p.sgst||0)>0||(p.igst||0)>0); });
+}
+
 function saveAdvanceOrder(){
   const custName=up(document.getElementById('advCustName').value);
   const phone=(document.getElementById('advPhone').value||'').trim();
@@ -5922,6 +5999,9 @@ function saveAdvanceOrder(){
   if(!packTimeStr){ notify('Packing time is required','error'); return; }
   // Validate packing time is strictly in the future (not == current time)
   const packTimeDate=new Date(packTimeStr);
+  // An unparseable date compares false against everything, so the "must be in the
+  // future" check alone would let NaN through and poison the sale date later.
+  if(isNaN(packTimeDate.getTime())){ notify('Packing date is not a valid date!','error'); document.getElementById('advPackDate').focus(); return; }
   if(packTimeDate<=new Date()){ notify('Packing time must be AFTER current time!','error'); document.getElementById('advPackDate').focus(); return; }
   const items=[];
   let total=0;
@@ -5932,7 +6012,11 @@ function saveAdvanceOrder(){
     if(p&&qty>0){ items.push({productId:p.id,productName:p.name,emoji:p.emoji,price:p.price,qty}); total+=p.price*qty; }
   }
   if(!items.length){ notify('Add at least one item','error'); return; }
-  const order={id:'ADV-'+String(nextAdvId++).padStart(4,'0'),custName,phone,packTime:_localDateStr(packTimeDate),advPaid,notes,location:_advLocation||null,items,total,status:'scheduled',saleId:null,addlPaid:0};
+  // GST is the user's explicit choice. Off means every tax figure stays zero, even
+  // though the product master carries a rate - nothing is inferred from the master.
+  const gstEnabled=!!document.getElementById('advGstChk')?.checked;
+  const orderTax=gstEnabled?advOrderTax(true,advTaxItems(items)):{tax:0,cgst:0,sgst:0,igst:0,cess:0};
+  const order={id:'ADV-'+String(nextAdvId++).padStart(4,'0'),custName,phone,packTime:_localDateStr(packTimeDate),advPaid,notes,location:_advLocation||null,items,total,status:'scheduled',saleId:null,addlPaid:0,gstEnabled,advanceUnused:0,orderTax:orderTax.tax,taxApplied:gstEnabled};
   advanceOrders.push(order);
   scheduleAdvanceReminders(order);
   closeModal('advanceModal'); renderAdvanceOrders(); saveAllData(); notify(`Advance order saved for ${custName}`);
@@ -5996,6 +6080,10 @@ function renderAdvanceOrders(){
     const packDate=new Date(o.packTime);
     const isPast=packDate<=now;
     const isHourAway=(packDate.getTime()-now.getTime())<=3600000&&packDate>now;
+    // advanceUnused is credit the customer still owns from this order. It must NOT
+    // count as paid toward the order (the order is already invoiced) but it does
+    // need to be visible, otherwise retained money looks like it vanished.
+    const unused=Number(o.advanceUnused)||0;
     const totalPaid=(o.advPaid||0)+(o.addlPaid||0);
     const pending=Math.max(0,o.total-totalPaid);
     // Determine status label
@@ -6021,6 +6109,7 @@ function renderAdvanceOrders(){
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">Order Total</span><span style="color:var(--accent);font-weight:600;">₹${fmt(o.total)}</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">Advance Paid</span><span style="color:var(--green);">₹${fmt(o.advPaid||0)}</span></div>
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">Additional Paid (on billing)</span><span style="color:var(--green);">₹${fmt(o.addlPaid||0)}</span></div>
+        ${unused>0?`<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">Advance in hand (excess)</span><span style="color:var(--accent2);font-weight:600;">₹${fmt(unused)}</span></div>`:''}
         <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px;margin-top:2px;"><span style="color:var(--muted);font-weight:600;">${pending>0?'Balance Pending':'Fully Settled'}</span><span style="color:${pending>0?'var(--red)':'var(--green)'};font-weight:700;">₹${fmt(pending)}${pending<=0?' ✓':''}</span></div>
         ${pendingSince&&pending>0?`<div style="font-size:10px;color:var(--red);margin-top:4px;">⏳ Pending since ${pendingSince}</div>`:''}
       </div>`;
@@ -6133,28 +6222,33 @@ function finalizeAdvOrder(){
   const o=advanceOrders.find(x=>x.id===id); if(!o) return;
   const nowPay=parseFloat(document.getElementById('advBillPayment').value)||0;
   const method=document.getElementById('advBillMethod').value;
-  const advPaid=o.advPaid||0;
+  // Advance already on hand, including credit retained from an earlier invoice
+  const advPaid=(Number(o.advPaid)||0)+(Number(o.advanceUnused)||0);
   const orderTotal=o.total;
-  const overPaid=advPaid>orderTotal?advPaid-orderTotal:0;
+  // GST is the order's own explicit choice. Off => zero tax, and the item master's
+  // rates are zeroed below too so nothing downstream can re-derive them.
+  const gstOn=!!o.gstEnabled;
+  const gstT=gstOn?advOrderTax(true,advTaxItems(o.items)):{tax:0,cgst:0,sgst:0,igst:0,cess:0};
+  const invTotal=Math.round((orderTotal+gstT.tax)*100)/100;
+  // Advance on hand vs this invoice. Excess is RETAINED as credit below, never lost.
+  const overPaid=advPaid>invTotal?Math.round((advPaid-invTotal)*100)/100:0;
   const saleId='TXN-'+String(nextSaleId++).padStart(6,'0');
 
   // Finalize: if advance overpaid, total paid = orderTotal (no pending)
-  const totalPaid=overPaid>0?orderTotal:(advPaid+nowPay);
-  const pending=Math.max(0,orderTotal-totalPaid);
+  const totalPaid=overPaid>0?invTotal:Math.min(advPaid+nowPay,invTotal);
+  const pending=Math.max(0,Math.round((invTotal-totalPaid)*100)/100);
   // Use the advance order's packTime as the sale date
   const saleDate = o.packTime || _localDateStr();
   const sale={
     id:saleId,customerName:o.custName,customerPhone:o.phone||'',
-    // Advance orders do not collect tax at the counter, but zeroing the rate here
-    // would make the GST engine read a genuinely taxable product as nil-rated.
-    // Carry the real rate through so the CRITICAL ""taxable item on a non-GST
-    // bill"" check fires instead of a silently wrong return.
-    items:o.items.map(i=>{const _p=products.find(x=>x.id===i.productId);return {id:i.productId,name:i.productName,qty:i.qty,price:i.price,gst:(_p&&_p.gst)||0,cgst:(_p&&_p.cgst)||0,sgst:(_p&&_p.sgst)||0,igst:(_p&&_p.igst)||0,hsn:(_p&&_p.hsn)||i.hsn||'',uqc:(_p&&_p.uqc)||'',purchasePrice:(_p&&_p.purchasePrice)||0};}),
-    sub:orderTotal,tax:0,total:orderTotal,method,amtPaid:totalPaid,pending,
-    date:saleDate,taxApplied:false,payType:pending>0?'partial':'paid',
-    // Advance-order bills keep the same document defaults as the checkout screen;
-    // the tax error is surfaced by validation rather than hidden here.
-    docType:'tax_invoice',supplyType:'domestic',docStatus:'finalised',isInterstate:!isIntrastate()
+    // GST is opt-in per order. With it off every rate here is zeroed as well as
+    // taxApplied:false, so no CGST/SGST/IGST/cess can be derived from the master
+    // later, and the document stays a Bill of Supply.
+    items:o.items.map(i=>{const _p=products.find(x=>x.id===i.productId);return {id:i.productId,name:i.productName,qty:i.qty,price:i.price,gst:gstOn?((_p&&_p.gst)||0):0,cgst:gstOn?((_p&&_p.cgst)||0):0,sgst:gstOn?((_p&&_p.sgst)||0):0,igst:gstOn?((_p&&_p.igst)||0):0,hsn:(_p&&_p.hsn)||i.hsn||'',uqc:(_p&&_p.uqc)||'',purchasePrice:(_p&&_p.purchasePrice)||0};}),
+    sub:orderTotal,tax:gstT.tax,total:invTotal,method,amtPaid:totalPaid,pending,
+    date:saleDate,taxApplied:gstOn,payType:pending>0?'partial':'paid',
+    // A GST-off advance order is a Bill of Supply, not a tax invoice.
+    docType:gstOn?'tax_invoice':'bill_of_supply',supplyType:'domestic',docStatus:'finalised',isInterstate:!isIntrastate()
   };
   sales.push(sale);
   o.items.forEach(item=>{
@@ -6171,33 +6265,40 @@ function finalizeAdvOrder(){
     p.stock=Math.max(0,calcTotalStock(p.noOfBoxes||0,p.noOfPieces||0,ppb));
   });
 
-  // Handle overpaid → apply to customer's udhaar
-  if(overPaid>0){
+  // Excess advance. It is the customer's money, so it is applied to any udhaar
+  // they already owe and whatever is left is RETAINED on the order as credit.
+  // Previously a leftover was only announced in a toast that vanished on reload,
+  // so the money left the shop with no record anywhere.
+  //
+  // `left` tracks the excess that has NOT been consumed. It must start at the
+  // whole excess and be decremented: seeding it with the absorbed amount and
+  // then subtracting would leave it at 0 and retain money twice over.
+  let left=Math.round(overPaid*100)/100;
+  if(left>0){
     const custLow=o.custName.toLowerCase();
     const udRec=udhaarRecords.find(r=>r.name.toLowerCase()===custLow);
     const udPending=udRec?Math.max(0,udRec.totalPending):0;
     if(udRec&&udPending>0){
-      const udApply=Math.min(overPaid,udPending);
-      let toApply=udApply;
       udRec.bills.forEach(b=>{
-        if(toApply<=0||b.pending<=0) return;
-        const apply=Math.min(toApply,b.pending);
-        b.amtPaid+=apply; b.pending=Math.max(0,b.pending-apply);
-        b.payments.push({amount:apply,date:_localDateStr(),note:'From advance overpayment '+saleId});
-        toApply-=apply;
+        if(left<=0||b.pending<=0) return;
+        const apply=Math.min(left,b.pending);
+        b.amtPaid+=apply; b.pending=Math.max(0,Math.round((b.pending-apply)*100)/100);
+        b.payments.push({amount:apply,date:_localDateStr(),note:'Excess advance from order '+id});
+        left=Math.round((left-apply)*100)/100;
       });
       recalcUd(udRec);
-      const returnAmt=overPaid-udApply;
-      if(returnAmt>0.005) notify(`Return ₹${fmt(returnAmt)} to ${o.custName}`,'success');
-    } else {
-      notify(`Return ₹${fmt(overPaid)} to ${o.custName} (advance exceeded order)`,'success');
     }
+    // Whatever the udhaar could not absorb is kept on the order: usable against
+    // this order's next invoice, and shown as advance in hand so it never looks lost.
+    o.advanceUnused=left;
+  } else {
+    o.advanceUnused=0;
   }
 
   if(pending>0) addUdhaarBill(o.custName,o.phone||'','',sale);
   addLedgerEntry(o.custName, o.phone, saleDate, `Sale ${saleId} - Advance Order ${id}`, sale.total, totalPaid);
   o.status='billed'; o.saleId=saleId; o.addlPaid=nowPay;
-  o.bills=pending>0?[{date:_localDateStr(),saleId,totalBill:orderTotal,amtPaid:totalPaid,pending}]:[];
+  o.bills=pending>0?[{date:_localDateStr(),saleId,totalBill:invTotal,amtPaid:totalPaid,pending}]:[];
   closeModal('advBillModal'); renderAdvanceOrders(); saveAllData(); showReceipt(sale);
   setTimeout(()=>checkZeroStockAfterSale(sale),1500);
   notify(`Order billed: ${o.custName} · ₹${fmt(orderTotal)}`);
@@ -8122,7 +8223,11 @@ function mapAdvance(o){
     status:o.status||'scheduled', saleId:o.sale_id, transport:o.transport,
     location:o.location||null,
     taxApplied:o.tax_applied||false, transportCost:Number(o.transport_cost||0),
-    addlPaid:Number(o.addl_paid||0), bills:o.bills||[] };
+    addlPaid:Number(o.addl_paid||0), bills:o.bills||[],
+    // GST is opt-in per order and defaults OFF. Never inferred from the item master.
+    gstEnabled:!!o.gst_enabled,
+    // advance received but not yet consumed by an invoice
+    advanceUnused:Number(o.advance_unused||0) };
 }
 function mapUdhaar(r){
   return { id:r.id, name:r.name, phone:r.phone||'', reference:r.reference||'',

@@ -205,6 +205,14 @@ async function initDB() {
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS actual_total DECIMAL(10,2)`);
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS hidden BOOLEAN DEFAULT false`);
     await client.query(`ALTER TABLE advance_orders ADD COLUMN IF NOT EXISTS location JSONB`);
+
+    // GST is opt-in per order, never inherited from the item master. An order with
+    // this off must produce zero tax everywhere: on the advance receipt, on the
+    // final invoice, on print, and in every GST report.
+    await client.query(`ALTER TABLE advance_orders ADD COLUMN IF NOT EXISTS gst_enabled BOOLEAN DEFAULT false`);
+    // Advance received beyond what an invoice consumed. Previously the excess was
+    // paid out as cash and never recorded, so the money simply vanished.
+    await client.query(`ALTER TABLE advance_orders ADD COLUMN IF NOT EXISTS advance_unused DECIMAL(12,2) DEFAULT 0`);
     await client.query(`ALTER TABLE customer_ledgers ADD COLUMN IF NOT EXISTS location JSONB`);
 
     // GST split migration
