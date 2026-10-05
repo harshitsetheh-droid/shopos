@@ -410,7 +410,7 @@ function renderGstOverview(){
   el.innerHTML = `
     <div class="stats-row">
       ${stat('Taxable value', gstRs(g.totals.taxablePaise), `${g.counts.documents} documents`, 'accent')}
-      ${stat('Tax payable', gstRs(g.totals.cgstPaise + g.totals.sgstPaise + g.totals.igstPaise + g.totals.cessPaise),
+      ${stat('Tax payable', gstRs(gstSum(g.totals.cgstPaise, g.totals.sgstPaise, g.totals.igstPaise, g.totals.cessPaise)),
         `C ${gstRs(g.totals.cgstPaise)} · S ${gstRs(g.totals.sgstPaise)} · I ${gstRs(g.totals.igstPaise)}`, 'red')}
       ${stat('ITC claimable', gstRs(b.table4.netAvailable), 'eligible − reversed − ineligible', 'green')}
       ${stat('Net payable', gstRs(b.setOff.payable.igst + b.setOff.payable.cgst + b.setOff.payable.sgst),
@@ -422,15 +422,21 @@ function renderGstOverview(){
         <div class="card-title">📄 Table summary (GSTR-1)</div>
         <table class="gst-table">
           <tbody>
-            ${[['B2B (registered)', g.b2b.length, g.b2b.reduce((a,r)=>a+r.totalTaxablePaise,0)],
-               ['B2C Large', g.b2cl.length, g.b2cl.reduce((a,r)=>a+r.totalTaxablePaise,0)],
-               ['B2C Small', g.b2cs.length, g.b2cs.reduce((a,r)=>a+r.taxablePaise,0)],
-               ['Exports', g.exp.length, g.exp.reduce((a,r)=>a+r.taxablePaise,0)],
-               ['SEZ', g.sez.length, g.sez.reduce((a,r)=>a+r.taxablePaise,0)],
-               ['Credit/Debit Notes (CDNR)', g.cdnr.length, g.cdnr.reduce((a,r)=>a+r.totalTaxablePaise,0)],
-               ['Credit/Debit Notes (CDNUR)', g.cdnur.length, g.cdnur.reduce((a,r)=>a+r.totalTaxablePaise,0)],
-               ['Nil / Exempt / Non-GST', g.nil_exempt.length, g.nil_exempt.reduce((a,r)=>a+r.taxablePaise,0)]
-              ].map(([n,cnt,val]) => `<tr><td>${n}</td><td class="r">${cnt}</td><td class="r">${gstRs(val)}</td></tr>`).join('')}
+            ${[['B2B (registered)', g.b2b, 'totalTaxablePaise'],
+               ['B2C Large', g.b2cl, 'totalTaxablePaise'],
+               ['B2C Small', g.b2cs, 'taxablePaise'],
+               ['Exports', g.exp, 'taxablePaise'],
+               ['SEZ', g.sez, 'taxablePaise'],
+               ['Credit/Debit Notes (CDNR)', g.cdnr, 'totalTaxablePaise'],
+               ['Credit/Debit Notes (CDNUR)', g.cdnur, 'totalTaxablePaise'],
+               ['Nil / Exempt / Non-GST', g.nil_exempt, 'taxablePaise']
+              ].map(([n, rows, field]) => {
+                // Paise amounts arrive as decimal strings (BigInt is not JSON), so
+                // they must be summed numerically. `reduce((a,r)=>a+r.x, 0)`
+                // concatenates instead of adding and prints nonsense.
+                const val = (rows || []).reduce((a, r) => a + (Number(r[field]) || 0), 0);
+                return `<tr><td>${n}</td><td class="r">${(rows || []).length}</td><td class="r">${gstRs(val)}</td></tr>`;
+              }).join('')}
           </tbody>
         </table>
       </div>
@@ -561,7 +567,7 @@ function renderGstGstr1(){
         <td class="r">${gstQty(r.qtyTotal)}</td>
         <td>${gstEscape(String(r.rate))}%</td>
         <td class="r">${gstRs(r.taxablePaise)}</td>
-        <td class="r">${gstRs(r.cgstPaise + r.sgstPaise + r.igstPaise)}</td>
+        <td class="r">${gstRs(gstSum(r.cgstPaise, r.sgstPaise, r.igstPaise))}</td>
         <td class="r">${gstRs(r.b2bTaxablePaise)}</td>
         <td class="r">${gstRs(r.b2cTaxablePaise)}</td>
       </tr>`).join('');
@@ -619,7 +625,7 @@ function renderGstGstr1(){
             <td>${gstEscape(r.noteNumber)}</td>
             <td>${gstEscape(r.originalInvoiceNumber || '—')}</td>
             <td class="r">${gstRs(r.totalTaxablePaise)}</td>
-            <td class="r">${gstRs(r.totalCgstPaise + r.totalSgstPaise + r.totalIgstPaise)}</td>
+            <td class="r">${gstRs(gstSum(r.totalCgstPaise, r.totalSgstPaise, r.totalIgstPaise))}</td>
           </tr>`).join('') || '<tr><td colspan="6" style="color:var(--muted);">No credit / debit notes</td></tr>'}
         </tbody></table></div>
 
