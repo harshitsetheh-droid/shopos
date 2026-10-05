@@ -16,7 +16,7 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
                           'reverse_charge','nil_rated_reason','exempt_reason','non_gst_reason',
                           'linked_invoice_no','linked_invoice_id','linked_invoice_date','note_reason',
                           'export_payment_type','original_invoice_no','original_invoice_period',
-                          'amendment_reason','customer_location')
+                          'amendment_reason','customer_location','exclude_financials')
     ORDER BY column_name`);
 
   const invCols = await q(`
@@ -59,7 +59,7 @@ const db = require(path.join(__dirname, '..', '..', 'backend', 'db'));
       'is_interstate','supply_type','doc_status','cancel_date','cancel_reason','reverse_charge',
       'nil_rated_reason','exempt_reason','non_gst_reason','linked_invoice_no','linked_invoice_id',
       'linked_invoice_date','note_reason','export_payment_type','original_invoice_no',
-      'original_invoice_period','amendment_reason','customer_location'],
+      'original_invoice_period','amendment_reason','customer_location','exclude_financials'],
     'inventory_history columns': ['supplier_invoice_no','supplier_gstin','supplier_state_code','purchase_invoice_date',
       'purchase_taxable','purchase_cgst','purchase_sgst','purchase_igst','purchase_cess',
       'itc_eligible','ineligible_reason','is_import','reverse_charge','expense_id',

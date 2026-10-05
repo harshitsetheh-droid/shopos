@@ -452,6 +452,7 @@ let nextProdId=1, nextCatId=1, nextSaleId=1, nextInvId=1, nextAdvId=1;
 let _nextNoteId=1, _nextLedgerId=1;
 let _invSearch='', _posSearch='', _bulkMode='pieces';
 let _gstBreakdownOpen=false, _salesFilter='month', _salesGstOnly=false, _salesMethodFilter=null, _salesSearchQuery='', _salesSearchMode='customer';
+let _salesShowHidden=false;   // review view: sales removed from the list, restorable
 let _invEntryRowCount=0, _advRowCount=0;
 let _supplierManualStatus=false, _transportManualStatus=false;
 let _udhaarIncluded=false;
@@ -6176,8 +6177,11 @@ function finalizeAdvOrder(){
 
 // ── DASHBOARD ────────────────────────────────────────────────────────────────
 // Profit helper: sum of (sellingPrice - purchasePrice) * qty for all sale items
+/** Sales the user chose to keep out of revenue and profit entirely. */
+function inFinancials(s){ return !s.excludeFinancials; }
+
 function calcProfit(salesArr){
-  return salesArr.reduce((a,s)=>{
+  return salesArr.filter(inFinancials).reduce((a,s)=>{
     // Per-line margin. A per-item discount is already carried in customPrice
     // (overrideDisc is only the percentage label for it), so nothing extra is
     // needed for those. Tax is deliberately excluded: it is collected for the
@@ -6197,7 +6201,7 @@ function calcProfit(salesArr){
 
 // Revenue helper: actual collected revenue (excludes pending udhaar)
 function calcRevenue(salesArr, includeUdhaar=false){
-  return salesArr.reduce((a,s)=>{
+  return salesArr.filter(inFinancials).reduce((a,s)=>{
     if(includeUdhaar) return a + s.total;
     // Only count what was actually paid (amtPaid), skip pending
     return a + (s.amtPaid != null ? s.amtPaid : s.total);
@@ -6207,13 +6211,16 @@ function calcRevenue(salesArr, includeUdhaar=false){
 let _dashUdhaarMode = false; // false = without pending udhaar, true = with
 
 function renderDashboard(){
-  const todaySales=sales.filter(s=>new Date(s.date).toDateString()===new Date().toDateString());
+  // Sales the user removed from the financial records count for nothing here, so
+  // revenue, profit and the transaction counts all agree with each other.
+  const financialSales=sales.filter(inFinancials);
+  const todaySales=financialSales.filter(s=>new Date(s.date).toDateString()===new Date().toDateString());
   const todayRev = calcRevenue(todaySales, _dashUdhaarMode);
-  const totalRev = calcRevenue(sales, _dashUdhaarMode);
+  const totalRev = calcRevenue(financialSales, _dashUdhaarMode);
   const todayRevWithUd = calcRevenue(todaySales, true);
-  const totalRevWithUd = calcRevenue(sales, true);
+  const totalRevWithUd = calcRevenue(financialSales, true);
   const todayProfit = calcProfit(todaySales);
-  const totalProfit = calcProfit(sales);
+  const totalProfit = calcProfit(financialSales);
   const todayExpenses = calcPeriodExpenses(new Date(new Date().setHours(0,0,0,0)), new Date());
   const allTimeExpenses = totalExpenses();
   const netTodayProfit = todayProfit - todayExpenses;
@@ -6238,7 +6245,7 @@ function renderDashboard(){
     <div class="stat-card blue interactive-card" onclick="showDashDetail('all')" title="Click to see all sales">
       <div class="stat-label">Total Revenue <span style="font-size:9px;opacity:.6;">↗ click</span></div>
       <div class="stat-value blue">₹${fmt(totalRev)}</div>
-      <div class="stat-sub">${sales.length} all-time</div>
+      <div class="stat-sub">${financialSales.length} all-time</div>
     </div>
     <div class="stat-card green" title="Today's profit minus expenses">
       <div class="stat-label">Today's Profit <span style="font-size:9px;opacity:.6;">↗</span></div>
@@ -6497,8 +6504,19 @@ function renderSalesHistory(){
   if(searchEl&&searchEl.value!==_salesSearchQuery) searchEl.value=_salesSearchQuery;
   const clearBtn=document.getElementById('salesSearchClearBtn');
   if(clearBtn) clearBtn.style.display=_salesSearchQuery?'inline-block':'none';
+  // Keep the review-view pill in step, including after another filter clears all
+  // the .filter-pill active states.
+  const hp=document.getElementById('salesHiddenPill');
+  if(hp){
+    const hiddenCount=sales.filter(s=>s.hidden).length;
+    hp.classList.toggle('active',_salesShowHidden);
+    hp.textContent=`🗂️ Hidden${hiddenCount?` (${hiddenCount})`:''}`;
+    hp.style.display=hiddenCount?'inline-block':'none';
+  }
   const now=new Date();
-  let filtered=sales.filter(s=>!s.hidden);
+  // 'hidden' is a review view, not a filter: it shows the sales that were taken
+  // out of the list, so a decision about the financial records can be undone.
+  let filtered=_salesShowHidden ? sales.filter(s=>s.hidden) : sales.filter(s=>!s.hidden);
   if(_salesFilter==='month'){const cutoff=new Date(now.getFullYear(),now.getMonth(),1);filtered=filtered.filter(s=>new Date(s.date)>=cutoff);}
   else if(_salesFilter==='week'){const cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-7);filtered=filtered.filter(s=>new Date(s.date)>=cutoff);}
   else if(_salesFilter==='today'){filtered=filtered.filter(s=>new Date(s.date).toDateString()===now.toDateString());}
@@ -6519,7 +6537,11 @@ function renderSalesHistory(){
     }
   }
   const wrap=document.getElementById('salesWrap');
-  if(!filtered.length){wrap.innerHTML='<div class="empty-state"><div class="big">🧾</div><p>No sales in this period.</p></div>';document.getElementById('salesCount').textContent='';return;}
+  if(!filtered.length){
+    wrap.innerHTML=`<div class="empty-state"><div class="big">🧾</div><p>${_salesShowHidden?'No hidden sales.':'No sales in this period.'}</p></div>`;
+    document.getElementById('salesCount').textContent='';
+    return;
+  }
   const label=(_salesGstOnly?' GST only':_salesMethodFilter?` ${_salesMethodFilter}`:'')+(_salesSearchQuery?` · search: "${_salesSearchQuery}"`:'');
   document.getElementById('salesCount').textContent = `${filtered.length} sale${filtered.length!==1?'s':''}${label}`;
   const methodColors={Cash:'green',UPI:'yellow',Udhaar:'red'};
@@ -6535,6 +6557,8 @@ function renderSalesHistory(){
         <div class="inv-hist-header">
           <span class="badge badge-blue" style="font-size:13px;padding:4px 10px;font-weight:700;cursor:pointer;" onclick="showReceipt(sales.find(x=>x.id==='${s.id}'))">${s.id}</span>
           <span class="badge badge-${mc}" style="font-size:11px;padding:3px 8px;">${s.method}</span>
+          ${s.excludeFinancials?`<span class="badge" style="font-size:10px;padding:3px 8px;background:rgba(239,68,68,.15);color:var(--red);" title="Hidden, and also removed from revenue and profit.">not in financials</span>`:''}
+          ${(s.docStatus||'finalised')==='cancelled'?`<span class="badge" style="font-size:10px;padding:3px 8px;background:rgba(239,68,68,.15);color:var(--red);" title="${escHtml(s.cancelReason||'Cancelled')}">cancelled</span>`:''}
         </div>
         <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
           <div style="font-weight:600;color:var(--text);">${s.customerName||'Walk-in'}</div>
@@ -6549,7 +6573,8 @@ function renderSalesHistory(){
         <div style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${itemsStr}">🛒 ${itemsStr}</div>
         <div style="display:flex;gap:6px;margin-top:auto;padding-top:6px;border-top:1px solid var(--border);">
           <button class="btn btn-ghost" style="font-size:10px;padding:2px 7px;border:1px solid var(--border);border-radius:5px;" onclick="showReceipt(sales.find(x=>x.id==='${s.id}'))">📄 PDF</button>
-          <button class="btn btn-ghost" style="font-size:10px;padding:2px 7px;border:1px solid var(--red);color:var(--red);border-radius:5px;margin-left:auto;" onclick="deleteSingleSale('${s.id}')">🗑️</button>
+          ${s.hidden?`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px;border:1px solid var(--green);color:var(--green);border-radius:5px;margin-left:auto;" onclick="restoreSale('${s.id}')">↩ Restore</button>`
+                   :`<button class="btn btn-ghost" style="font-size:10px;padding:2px 7px;border:1px solid var(--red);color:var(--red);border-radius:5px;margin-left:auto;" onclick="deleteSingleSale('${s.id}')">🗑️</button>`}
         </div>
       </div>`;
     }).join('')
@@ -6604,7 +6629,10 @@ function getFilteredSalesForReports(){
 }
 
 function renderReports(){
-  const filteredSales = getFilteredSalesForReports();
+  // Anything the user removed from the financial records drops out of every
+  // figure on this screen, not just revenue, so the charts and counts stay
+  // consistent with the money.
+  const filteredSales = getFilteredSalesForReports().filter(inFinancials);
   const totalRev = calcRevenue(filteredSales, _reportsUdhaarMode);
   const totalTax=filteredSales.reduce((a,s)=>a+(s.tax||0),0);
   const avgSale=filteredSales.length?totalRev/filteredSales.length:0;
@@ -6759,10 +6787,11 @@ function renderPriceChangeLog(){
   const todayStr = _localDateStr().slice(0,10);
   const todayChanges = rows.filter(r => r.date === todayStr && r.diff !== 0);
   if(todayChanges.length){
-    const up = todayChanges.filter(r => r.diff > 0).length;
+    // named ups/down, not up/down: a local `up` shadows the top-level up() string helper
+    const ups = todayChanges.filter(r => r.diff > 0).length;
     const down = todayChanges.filter(r => r.diff < 0).length;
     let msg = `📊 ${todayChanges.length} purchase price change(s) today`;
-    if(up) msg += ` · ${up} ↑`;
+    if(ups) msg += ` · ${ups} ↑`;
     if(down) msg += ` · ${down} ↓`;
     setTimeout(() => notify(msg), 1000);
   }
@@ -6900,12 +6929,109 @@ function downloadSalePDF(sale){
 function deleteSingleSale(id){
   const s=sales.find(x=>x.id===id);
   if(!s){ notify('Sale not found','error'); return; }
-  if(s.pending>0&&!confirm(`⚠️ This sale has ₹${fmt(s.pending)} udhaar still pending!\n\nDeleting will keep the udhaar record unchanged.\n\nContinue anyway?`)) return;
-  if(!confirm(`Hide sale ${id} from history? Financial records (revenue/profit/udhaar) will be preserved.`)) return;
-  s.hidden=true;
+  askHideSales([s], ({ excludeFinancials })=>{
+    s.hidden=true;
+    s.excludeFinancials=excludeFinancials;
+    renderSalesHistory();
+    renderDashboard();
+    saveAllData();
+    notify(`Sale ${id} hidden${excludeFinancials?' and removed from revenue & profit':''}`);
+  });
+}
+/** Put a hidden sale back, and undo the "out of the financials" decision with it. */
+function restoreSale(id){
+  const s=sales.find(x=>x.id===id);
+  if(!s){ notify('Sale not found','error'); return; }
+  s.hidden=false;
+  s.excludeFinancials=false;
   renderSalesHistory();
+  renderDashboard();
   saveAllData();
-  notify(`Sale ${id} hidden from history`);
+  notify(`Sale ${id} restored (counted in revenue & profit again)`);
+}
+function toggleSalesHiddenView(){
+  _salesShowHidden=!_salesShowHidden;
+  renderSalesHistory();
+}
+
+/**
+ * Ask what should happen to the financial records before hiding sales.
+ *
+ * Hiding used to always leave revenue and profit untouched, so a hidden duplicate
+ * or a mis-keyed bill vanished from the list while its money stayed in the totals
+ * — and nothing on screen said so. The choice is now explicit and recorded per
+ * sale (sales.exclude_financials), so the two can be decided independently.
+ *
+ * The GST return is deliberately NOT touched here. GSTR-1 is a statutory record
+ * with its own cancel-and-credit-note workflow, and silently dropping a document
+ * from it would be worse than leaving it visible. Cancelling the document, or
+ * raising a credit note, is the correct way to change a filed return.
+ *
+ * @param {Array} targets  sale objects
+ * @param {(opts:{excludeFinancials:boolean})=>void} onConfirm
+ */
+function askHideSales(targets, onConfirm){
+  const n=targets.length;
+  const value=targets.reduce((a,s)=>a+(Number(s.total)||0),0);
+  const tax=targets.reduce((a,s)=>a+(Number(s.tax)||0),0);
+  const pendCount=targets.filter(s=>(Number(s.pending)||0)>0).length;
+  const pendAmt=targets.reduce((a,s)=>a+(Number(s.pending)||0),0);
+  const inGst=targets.filter(s=>(s.docType||'tax_invoice')!=='estimate'
+    && (s.docStatus||'finalised')!=='cancelled').length;
+
+  const bg=document.createElement('div');
+  bg.id='hideSalesBg';
+  bg.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:3000;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;backdrop-filter:blur(4px);';
+  bg.onclick=e=>{ if(e.target===bg) bg.remove(); };
+  const label=(forId,title,body,checked)=>`
+    <label for="${forId}" style="display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;margin-bottom:10px;${checked?'border-color:var(--accent);':''}">
+      <input type="radio" name="hideFinChoice" id="${forId}" value="${forId}" ${checked?'checked':''} style="margin-top:3px;flex-shrink:0;">
+      <span style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:3px;">${title}</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5;">${body}</div>
+      </span>
+    </label>`;
+
+  bg.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:520px;max-width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <div style="font-size:18px;font-weight:700;font-family:var(--font-head);margin-bottom:6px;">Hide ${n} sale${n!==1?'s':''} from history?</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6;">
+      ${n===1?`Sale <strong>${escHtml(targets[0].id)}</strong> · ${escHtml(targets[0].customerName||'Walk-in')}`:`These ${n} sales`}
+      · total ₹${fmt(value)}${tax?` · GST ₹${fmt(tax)}`:''}
+    </div>
+    ${pendCount?`<div style="background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.35);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--red);margin-bottom:14px;line-height:1.5;">
+      ⚠️ ${pendCount} of these ha${pendCount===1?'s':'ve'} udhaar pending (₹${fmt(pendAmt)}). That record is left untouched either way.
+    </div>`:''}
+    <div style="font-size:12px;font-weight:600;margin-bottom:8px;">Should these come out of revenue and profit?</div>
+    ${label('fin_keep','No — hide from the list only',
+      'Revenue, profit and transaction counts stay exactly as they are. Right for a genuine sale you simply want out of the way, e.g. a duplicate entry you still want counted once.','checked')}
+    ${label('fin_drop','Yes — also remove from revenue and profit',
+      'These sales stop counting towards Total Revenue, Net Profit and the transaction counts. Right for something that should never have been recorded, e.g. a test bill or a mis-keyed amount. This can be undone.')}
+    ${inGst?`<div style="background:rgba(56,189,248,.08);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;">
+      This does <strong>not</strong> change your GST return. GSTR-1 is a separate statutory record — cancel the document, or raise a credit note, to change a filed return.
+    </div>`:''}
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;">
+      <button class="btn btn-ghost" id="hideCancel">Cancel</button>
+      <button class="btn btn-primary" id="hideGo">Hide ${n===1?'sale':n+' sales'}</button>
+    </div>
+  </div>`;
+  document.body.appendChild(bg);
+
+  const close=()=>{ bg.remove(); };
+  bg.querySelector('#hideCancel').onclick=close;
+  bg.querySelectorAll('input[name="hideFinChoice"]').forEach(r=>{
+    r.onchange=()=>{
+      bg.querySelectorAll('label[for^="fin_"]').forEach(l=>{
+        const inp=bg.querySelector('#'+l.getAttribute('for'));
+        l.style.borderColor = (inp && inp.checked) ? 'var(--accent)' : 'var(--border)';
+      });
+    };
+  });
+  bg.querySelector('#hideGo').onclick=()=>{
+    const drop=bg.querySelector('#fin_drop').checked;
+    close();
+    onConfirm({ excludeFinancials:drop });
+  };
+  setTimeout(()=>bg.querySelector('#fin_keep').focus(),50);
 }
 function deleteSalesByFilter(){
   const now=new Date();
@@ -6925,14 +7051,16 @@ function deleteSalesByFilter(){
     else src=src.filter(s=>s.items.some(i=>matchWords(i.name.toLowerCase(),_salesSearchQuery)));
   }
   if(!src.length){ notify('No sales to delete','error'); return; }
-  const pendCount=src.filter(s=>s.pending>0).length;
-  let msg=`Hide ${src.length} sale${src.length!==1?'s':''} from history? Financial records preserved.`;
-  if(pendCount) msg=`⚠️ ${pendCount} sale${pendCount!==1?'s':''} ha${pendCount===1?'s':'ve'} pending udhaar.\n\n${msg}`;
-  if(!confirm(msg)) return;
-  src.forEach(s=>{ s.hidden=true; });
-  renderSalesHistory();
-  saveAllData();
-  notify(`Hidden ${src.length} sale${src.length!==1?'s':''} from history`);
+  askHideSales(src, ({ excludeFinancials })=>{
+    src.forEach(s=>{
+      s.hidden=true;
+      s.excludeFinancials=excludeFinancials;
+    });
+    renderSalesHistory();
+    renderDashboard();
+    saveAllData();
+    notify(`Hidden ${src.length} sale${src.length!==1?'s':''}${excludeFinancials?' and removed from revenue & profit':''}`);
+  });
 }
 function filterSalesByCat(cat){
   navigate('sales');
@@ -7169,6 +7297,14 @@ function showPurchasePriceHistory(name){
 }
 
 // ── MODAL UTILS ───────────────────────────────────────────────────────────────
+function openModal(id){
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.classList.add('open');
+  // selects inside a modal are built by the same enhancer as the rest of the
+  // page, and a modal that was hidden at load may not have been picked up yet
+  enhanceSelects();
+}
 function closeModal(id){ document.getElementById(id).classList.remove('open'); enhanceSelects(); }
 document.querySelectorAll('.modal-bg').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 
@@ -7253,7 +7389,11 @@ function renderExistingReminders(){
     <div style="display:flex;flex-direction:column;gap:6px;">
       ${names.map(k=>{
         const g=groups[k];
-        const up=up(g.name);
+        // `const up=up(g.name)` used to sit here, shadowing the top-level up()
+        // inside its own temporal dead zone. It was never used, and it threw
+        // "Cannot access 'up' before initialization" the moment any customer had
+        // a fixed reminder, so this whole list failed to render. The empty case
+        // returns early above, which is why it went unnoticed.
         return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;">
           <div style="font-weight:700;">👤 ${escapeHtml(g.name)}</div>
           ${g.list.map(r=>{
@@ -7651,7 +7791,10 @@ function mapSale(s){
     noteReason:s.note_reason||'', exportPaymentType:s.export_payment_type||'',
     originalInvoiceNo:s.original_invoice_no||'',
     originalInvoicePeriod:s.original_invoice_period||'',
-    amendmentReason:s.amendment_reason||'' };
+    amendmentReason:s.amendment_reason||'',
+    // Independent of `hidden`: a sale can leave the history list but stay in
+    // revenue and profit, or leave both. The user picks when hiding a sale.
+    excludeFinancials:!!s.exclude_financials };
 }
 /**
  * Normalise a purchase-register row from the DB into the camelCase shape the rest

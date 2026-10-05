@@ -314,6 +314,7 @@
         <button class="filter-pill" onclick="setSalesFilter('all',this)">All Time</button>
         <button class="filter-pill" data-filter="gst" onclick="setSalesFilter('gst',this)">GST Collected</button>
         <button class="filter-pill" onclick="setSalesFilter('custom',this)">Custom</button>
+        <button class="filter-pill" id="salesHiddenPill" onclick="toggleSalesHiddenView()" title="Sales removed from this list. Restore them, or put them back into revenue and profit.">🗂️ Hidden</button>
         <button class="btn btn-ghost" style="font-size:14px;padding:6px 16px;border:1px solid var(--border);border-radius:20px;" onclick="downloadAllSales()">⬇ Download All</button>
         <button class="btn btn-ghost" style="font-size:12px;padding:6px 14px;border:1px solid var(--red);border-radius:20px;color:var(--red);" onclick="deleteSalesByFilter()">🗑️ Delete</button>
       </div>
@@ -1486,8 +1487,8 @@
 <script src="html2canvas.min.js"></script>
 <script src="jspdf.umd.min.js"></script>
 <script src="leaflet.js?v=1"></script>
-<script src="shopOS_app.js?v=68"></script>
-<script src="gst_ui.js?v=14"></script>
+<script src="shopOS_app.js?v=72"></script>
+<script src="gst_ui.js?v=15"></script>
 
 <!-- Calendar Overlay -->
 <div class="cal-overlay" id="calOverlay" style="display:none" onclick="if(event.target===this)calClose()">

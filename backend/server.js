@@ -225,12 +225,14 @@ app.post('/api/save', authMiddleware, async (req, res) => {
               doc_type, invoice_no, invoice_series, cust_gstin, place_of_supply, is_interstate, supply_type, doc_status,
               cancel_date, cancel_reason, reverse_charge, nil_rated_reason, exempt_reason, non_gst_reason,
               linked_invoice_no, linked_invoice_id, linked_invoice_date, note_reason, export_payment_type,
-              original_invoice_no, original_invoice_period, amendment_reason, customer_location)
+              original_invoice_no, original_invoice_period, amendment_reason, customer_location,
+              exclude_financials)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
               $20,$21,$22,$23,$24,$25,$26,$27,
               $28,$29,$30,$31,$32,$33,
               $34,$35,$36,$37,$38,
-              $39,$40,$41,$42)
+              $39,$40,$41,$42,
+              $43)
            ON CONFLICT (id,account_id) DO UPDATE SET
               customer_name=EXCLUDED.customer_name, customer_phone=EXCLUDED.customer_phone, items=EXCLUDED.items,
               sub=EXCLUDED.sub, tax=EXCLUDED.tax, total=EXCLUDED.total, method=EXCLUDED.method,
@@ -250,7 +252,8 @@ app.post('/api/save', authMiddleware, async (req, res) => {
               original_invoice_no=EXCLUDED.original_invoice_no,
               original_invoice_period=EXCLUDED.original_invoice_period,
               amendment_reason=EXCLUDED.amendment_reason,
-              customer_location=EXCLUDED.customer_location`,
+              customer_location=EXCLUDED.customer_location,
+              exclude_financials=EXCLUDED.exclude_financials`,
           [String(s.id).slice(0,50), aid, String(s.customerName||'').slice(0,255), String(s.customerPhone||'').slice(0,20), JSON.stringify(s.items||[]), parseFloat(s.sub)||0, parseFloat(s.tax)||0, parseFloat(s.total)||0, String(s.method||'Cash').slice(0,50), parseFloat(s.amtPaid)||0, parseFloat(s.pending)||0, s.date||new Date(), !!s.taxApplied, String(s.payType||'paid').slice(0,20), parseFloat(s.change)||0, !!s.udhaarIncluded, parseFloat(s.extraUdhaarAmount)||0, s.actualTotal!=null?parseFloat(s.actualTotal):null, !!s.hidden,
             String(s.docType||'tax_invoice').slice(0,30), String(s.invoiceNo||'').slice(0,64), String(s.invoiceSeries||'').slice(0,30),
             String(s.custGstin||'').slice(0,15), String(s.placeOfSupply||'').slice(0,2),
@@ -262,7 +265,8 @@ app.post('/api/save', authMiddleware, async (req, res) => {
             String(s.noteReason||''), String(s.exportPaymentType||'').slice(0,10),
             String(s.originalInvoiceNo||'').slice(0,64), String(s.originalInvoicePeriod||'').slice(0,7),
             String(s.amendmentReason||''),
-            String(s.customerLocation||'').slice(0,500)]
+            String(s.customerLocation||'').slice(0,500),
+            !!s.excludeFinancials]
         );
       }
     }
@@ -496,7 +500,7 @@ app.post('/api/delete-all', authMiddleware, async (req, res) => {
 const DELTA_TABLES = {
   categories:      { table: 'categories',      cols: ['id','name','emoji'],                    push: 'categories' },
   products:        { table: 'products',        cols: ['id','name','price','price5','price10','stock','cat_id','emoji','image','description','sku','low','no_of_boxes','no_of_pieces','pieces_per_box','gst','hsn','location','cess','purchase_price','last_purchase_date','cgst','sgst','igst','unit','weight_per_price'], push: 'products' },
-  sales:           { table: 'sales',           cols: ['id','customer_name','customer_phone','items','sub','tax','total','method','amt_paid','pending','date','tax_applied','pay_type','change_return','udhaar_included','extra_udhaar_amount','actual_total','hidden','doc_type','invoice_no','invoice_series','cust_gstin','place_of_supply','is_interstate','supply_type','doc_status','cancel_date','cancel_reason','reverse_charge','nil_rated_reason','exempt_reason','non_gst_reason','linked_invoice_no','linked_invoice_id','linked_invoice_date','note_reason','export_payment_type','original_invoice_no','original_invoice_period','amendment_reason','customer_location'],
+  sales:           { table: 'sales',           cols: ['id','customer_name','customer_phone','items','sub','tax','total','method','amt_paid','pending','date','tax_applied','pay_type','change_return','udhaar_included','extra_udhaar_amount','actual_total','hidden','doc_type','invoice_no','invoice_series','cust_gstin','place_of_supply','is_interstate','supply_type','doc_status','cancel_date','cancel_reason','reverse_charge','nil_rated_reason','exempt_reason','non_gst_reason','linked_invoice_no','linked_invoice_id','linked_invoice_date','note_reason','export_payment_type','original_invoice_no','original_invoice_period','amendment_reason','customer_location','exclude_financials'],
                      // The DB DEFAULTs never fire because these columns are always named in the
                      // INSERT, so the enum defaults have to be applied here or every row lands as NULL.
                      // NULL doc_status would silently defeat the "doc_status <> 'cancelled'" filter

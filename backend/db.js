@@ -263,6 +263,13 @@ async function initDB() {
     // asking the counter staff to retype it.
     await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_location TEXT DEFAULT ''`);
 
+    // Hiding a sale always removed it from the history list but kept it in revenue
+    // and profit, so a hidden duplicate still inflated the totals. The user is now
+    // asked whether the financial records should change too; this column records
+    // that answer independently of `hidden` (a sale can leave the list but stay in
+    // the books, or leave both).
+    await client.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS exclude_financials BOOLEAN DEFAULT false`);
+
     // Purchases: supplier GSTIN + ITC heads, needed for GSTR-2B reconciliation
     // The supplier's own invoice number. Without it a purchase row cannot be
     // matched to its 2B line, so reconciliation silently matched nothing.

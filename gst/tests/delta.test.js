@@ -128,6 +128,53 @@ const P = (n) => ({ id: n, name: 'P' + n, price: 10 * n, stock: n, catId: 1, emo
     check('customer_location round-trips',
       bare && bare.customer_location === '', `got=${bare && bare.customer_location}`);
 
+    // Hiding a sale now records two independent decisions: out of the list, and
+    // out of the financial records. The second one is what keeps a hidden
+    // duplicate from still inflating revenue, so it must survive both save paths.
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      delta: { mode: 'delta', changed: { sales: { upserts: [{
+        id: 'TXN-FIN-1', date: new Date().toISOString(), items: [], sub: 100, tax: 0,
+        total: 100, method: 'Cash', hidden: true, excludeFinancials: true,
+        doc_type: 'tax_invoice', doc_status: 'finalised',
+      }], deletes: [] } } },
+    }) });
+    let d = await api('/load');
+    let fin = (d.data.sales || []).find((x) => x.id === 'TXN-FIN-1');
+    check('exclude_financials persists in the delta path',
+      r.status === 200 && fin && fin.hidden === true && fin.exclude_financials === true,
+      fin ? `hidden=${fin.hidden} exclude=${fin.exclude_financials}`
+          : `save=${r.status} load=${d.status} ids=${(d.data.sales || []).map((x) => x.id).join(',')}`);
+
+    // a hidden sale that stays in the books
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      delta: { mode: 'delta', changed: { sales: { upserts: [{
+        id: 'TXN-FIN-2', date: new Date().toISOString(), items: [], sub: 200, tax: 0,
+        total: 200, method: 'Cash', hidden: true, excludeFinancials: false,
+      }], deletes: [] } } },
+    }) });
+    d = await api('/load');
+    fin = (d.data.sales || []).find((x) => x.id === 'TXN-FIN-2');
+    check('hidden without excluding stays in the financials',
+      fin && fin.hidden === true && fin.exclude_financials === false,
+      fin ? `hidden=${fin.hidden} exclude=${fin.exclude_financials}` : 'row missing');
+
+    // and it must survive the full-payload path too, in both spellings
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      sales: [{ id: 'TXN-FIN-3', date: new Date().toISOString(), items: [], sub: 50, tax: 0,
+        total: 50, method: 'Cash', hidden: true, excludeFinancials: true }],
+      categories: [], products: [], inventoryHistory: [], udhaarRecords: [],
+      advanceOrders: [], notes: [], expenses: [],
+    }) });
+    d = await api('/load');
+    fin = (d.data.sales || []).find((x) => x.id === 'TXN-FIN-3');
+    check('exclude_financials survives a full-payload save',
+      r.status === 200 && fin && fin.exclude_financials === true,
+      fin ? `exclude=${fin.exclude_financials}` : 'row missing');
+    r = await api('/save', { method: 'POST', body: JSON.stringify({
+      delta: { mode: 'delta', changed: { sales: { deletes: ['TXN-FIN-1', 'TXN-FIN-2'] } } },
+    }) });
+    check('financial test rows cleaned up', r.status === 200, r.data.error || '');
+
     // Purchases: the full-payload save reads camelCase only, and /load has no
     // mapper for this table, so a snake_case row silently wrote 0 into every GST
     // amount on every save. Send the raw DB shape and require it to survive.

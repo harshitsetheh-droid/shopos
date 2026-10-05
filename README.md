@@ -34,20 +34,29 @@ Open the printed URL, sign up, and press **Alt+G** for the GST screen.
 ### Tests
 
 ```bash
-# 181 unit tests, no database needed
+# 185 unit tests, no database needed
 node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
           "gst/tests/classify.test.js" "gst/tests/gstin.test.js" \
           "gst/tests/gstr1.test.js" "gst/tests/gstr3b.test.js" \
           "gst/tests/validate.test.js" "gst/tests/reconcile.test.js" \
-          "gst/tests/schema.test.js"
+          "gst/tests/schema.test.js" "gst/tests/client.test.js"
 
 # API + delta-save suites — these spawn their own server and need the database.
 # They must run from backend/ because dotenv reads .env relative to the cwd.
 cd backend
 node ../gst/tests/api.test.js      # 40 checks — HTTP surface, workflow, audit
-node ../gst/tests/delta.test.js    # 24 checks — partial save, upsert/delete
+node ../gst/tests/delta.test.js    # 28 checks — partial save, upsert/delete
 node ../gst/tests/verify-schema.js # asserts every GST column/table exists
 ```
+
+`gst/tests/client.test.js` is the odd one out: it statically checks
+`shopOS_app.js` and `shopOS_index.html` rather than the GST engine. Those two
+files are ~8700 lines loaded as plain `<script>`, so nothing else executes them
+and nothing type-checks them. It catches the mistakes that actually happen there:
+a declaration initialised from its own name (which throws a ReferenceError at
+runtime but parses fine), a local shadowing a top-level function, an `onclick`
+naming a function that no longer exists, and a first-party `<script>` that lost
+its `?v=` cache-buster. Each of those passed all 245 other tests.
 
 There are no extra test dependencies — it is `node --test` and nothing else.
 Each API suite starts its own server on port 3111/3112, creates a throwaway
@@ -243,6 +252,32 @@ legitimate return that the shop can file perfectly well today, and the mod-36
 check digit has edge cases around the GSTN's own state-code handling. Turn
 enforcement on per business in **Advanced config** once you have verified the
 algorithm against the GSTN specification for your real GSTINs.
+
+### Hiding a sale
+
+Deleting a sale never destroys it — it sets a flag, and the sale stays in the
+database. Two decisions are recorded separately, and you are asked for both:
+
+| | Out of the list | Out of revenue & profit |
+| --- | --- | --- |
+| **Hide from the list only** | yes | no |
+| **Also remove from revenue and profit** | yes | yes |
+
+The split matters because the right answer depends on why you are deleting. A
+duplicate you still want counted once, or a real sale you just want out of the
+way, should leave the money alone. A test bill or a mis-keyed amount should not be
+in the totals at all. Previously there was no choice, so a hidden duplicate kept
+inflating revenue while quietly vanishing from the list — the worst of both.
+
+Revenue, profit and the transaction counts all honour the second flag. Restore
+anything from the **🗂️ Hidden** pill in Sales History, which puts it back in both
+the list and the figures.
+
+**Hiding a sale does not change your GST return.** GSTR-1 is a separate statutory
+record with its own workflow: to take a document out of a return, cancel it or
+raise a credit note. Silently dropping it from GSTR-1 while leaving it in your
+books would be worse than leaving it visible, so the dialog says so rather than
+guessing.
 
 ### Three data notes
 
