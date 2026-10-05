@@ -6277,22 +6277,76 @@ function renderDashboard(){
       <div class="stat-value orange">₹${fmt(pendingUdhaarAmt)}</div>
       <div class="stat-sub">${pendingUdhaarCount} customer${pendingUdhaarCount!==1?'s':''}</div>
     </div>`;
-  const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  const dayData=Array(7).fill(0);
-  sales.forEach(s=>{dayData[new Date(s.date).getDay()]+=_dashUdhaarMode?s.total:(s.amtPaid||s.total);});
+  // ── Sales This Week ──────────────────────────────────────────────────────
+  // Monday-first, and scoped to THIS week. It used to add up every sale ever
+  // made and group by weekday, so the card titled "Sales This Week" was showing
+  // all-time totals — a bar that only ever grew and never meant this week.
+  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const dayFull=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const weekStart=(()=>{                       // Monday 00:00 of the current week
+    const n=new Date();
+    const back=(n.getDay()+6)%7;
+    const d=new Date(n.getFullYear(),n.getMonth(),n.getDate()-back);
+    return d;
+  })();
+  const weekEnd=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+7);
+  const monFirst=(d)=>(d.getDay()+6)%7;
+
+  const perDay=days.map(()=>({revenue:0,bills:0,items:0}));
+  sales.forEach(s=>{
+    const d=new Date(s.date);
+    if(d<weekStart||d>=weekEnd) return;
+    const i=monFirst(d);
+    perDay[i].revenue+=_dashUdhaarMode?(Number(s.total)||0):(Number(s.amtPaid)||Number(s.total)||0);
+    perDay[i].bills+=1;
+    perDay[i].items+=(s.items||[]).reduce((a,it)=>a+(Number(it.qty)||0),0);
+  });
+  const dayData=perDay.map(d=>d.revenue);
   const maxVal=Math.max(...dayData,1);
-  // Build an animated bar chart with proper heights
-  document.getElementById('weekChart').innerHTML=dayData.map((v,i)=>{
-    const heightPct=v>0?Math.max((v/maxVal*100),4):0;
-    return `<div class="bar-col" onclick="showDayDetail(${i})" style="cursor:pointer;" title="₹${fmt(v)} on ${days[i]}">
+  const weekTotal=dayData.reduce((a,v)=>a+v,0);
+  const weekBills=perDay.reduce((a,d)=>a+d.bills,0);
+  const todayIdx=monFirst(new Date());
+
+  const weekEl=document.getElementById('weekChart');
+  weekEl.innerHTML=days.map((label,i)=>{
+    const d=perDay[i];
+    const heightPct=d.revenue>0?Math.max((d.revenue/maxVal*100),3):0;
+    const date=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+i);
+    const dateLabel=date.toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+    const head=`${dayFull[i]}, ${dateLabel}${i===todayIdx?' · Today':''}`;
+    const tip=`<div class="bar-tooltip">
+        <div class="bar-tip-head">${head}</div>
+        ${d.revenue>0
+          ? `<div class="bar-tip-row"><span class="k">Revenue</span><span class="v">₹${fmt(d.revenue)}</span></div>
+             <div class="bar-tip-row"><span class="k k2">Bills</span><span class="v">${d.bills}</span></div>
+             <div class="bar-tip-row"><span class="k k3">Items sold</span><span class="v">${d.items}</span></div>`
+          : `<div class="bar-tip-row"><span class="k">No sales</span></div>`}
+      </div>`;
+    return `<div class="bar-col" onclick="showDayDetail('${_localDateStr(date)}')" style="cursor:pointer;">
       <div class="bar-wrap">
-        <div class="bar-animated" style="height:${heightPct}%;" data-val="${v}">
-          ${v>0?`<span class="bar-tooltip">₹${fmt(v)}</span>`:''}
-        </div>
+        ${d.revenue>0
+          ? `<div class="bar-animated" style="height:${heightPct}%;" data-val="${d.revenue}">${tip}</div>`
+          // a faint stub, so a day with no sales still reads as one of the seven
+          : `<div class="bar-empty" data-val="0">${tip}</div>`}
       </div>
-      <div class="bar-label">${days[i]}</div>
+      <div class="bar-label" style="${i===todayIdx?'color:var(--accent);font-weight:700;':''}">${label}</div>
     </div>`;
   }).join('');
+
+  // a caption under the chart, so the scope is never ambiguous
+  let weekCap=document.getElementById('weekChartCap');
+  if(!weekCap){
+    weekCap=document.createElement('div');
+    weekCap.id='weekChartCap';
+    weekCap.style.cssText='font-size:11px;color:var(--muted);margin-top:10px;text-align:center;';
+    weekEl.parentElement.appendChild(weekCap);
+  }
+  const capFrom=weekStart.toLocaleString('en-IN',{day:'numeric',month:'short'});
+  const capTo=new Date(weekStart.getFullYear(),weekStart.getMonth(),weekStart.getDate()+6)
+    .toLocaleString('en-IN',{day:'numeric',month:'short'});
+  weekCap.textContent=weekBills
+    ? `${capFrom} – ${capTo} · ${weekBills} bill${weekBills!==1?'s':''} · ₹${fmt(weekTotal)} total`
+    : `${capFrom} – ${capTo} · no sales yet this week`;
   const low=products.filter(p=>p.stock<=p.low);
   document.getElementById('lowStockList').innerHTML=
     !products.length
@@ -6419,15 +6473,22 @@ function showDashDetail(type){
 }
 
 // ── SALES HISTORY ─────────────────────────────────────────────────────────────
-function showDayDetail(dayIdx){
-  const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const daySales=sales.filter(s=>new Date(s.date).getDay()===dayIdx);
-  if(!daySales.length){ notify(`No sales on ${days[dayIdx]}`,'error'); return; }
-  const total=daySales.reduce((a,s)=>a+s.total,0);
+function showDayDetail(dateStr){
+  const target=new Date(dateStr);
+  if(isNaN(target)) return;
+  const daySales=sales.filter(s=>{
+    const d=new Date(s.date);
+    return d.getFullYear()===target.getFullYear()
+      && d.getMonth()===target.getMonth() && d.getDate()===target.getDate();
+  });
+  const label=target.toLocaleString('en-IN',{weekday:'long',day:'numeric',month:'short'});
+  if(!daySales.length){ notify(`No sales on ${label}`,'error'); return; }
+  const total=daySales.reduce((a,s)=>a+(Number(s.total)||0),0);
   const itemsMap={};
-  daySales.forEach(s=>s.items.forEach(i=>{itemsMap[i.name]=(itemsMap[i.name]||0)+i.qty;}));
-  const topItems=Object.entries(itemsMap).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  notify(`${days[dayIdx]}: ₹${fmt(total)} · ${daySales.length} sale${daySales.length!==1?'s':''}`, 'success');
+  daySales.forEach(s=>(s.items||[]).forEach(i=>{itemsMap[i.name]=(itemsMap[i.name]||0)+(Number(i.qty)||0);}));
+  const top=Object.entries(itemsMap).sort((a,b)=>b[1]-a[1]).slice(0,3)
+    .map(([n,q])=>`${n} ×${q}`).join(', ');
+  notify(`${label}: ₹${fmt(total)} · ${daySales.length} sale${daySales.length!==1?'s':''}${top?' · '+top:''}`, 'success');
 }
 function salesSearchInput(val){
   _salesSearchQuery=val.trim().toLowerCase();

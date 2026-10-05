@@ -539,27 +539,56 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
 
 /* ── CHARTS ── */
 .chart-bar{display:flex;align-items:flex-end;gap:6px;height:160px;padding:0 4px;}
-.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;}
-.bar-wrap{flex:1;display:flex;align-items:flex-end;width:100%;}
+/* the week chart gets the full page width and enough height to read the axis */
+.chart-bar--wide{height:300px;gap:10px;padding:0 6px 0 0;}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;position:relative;}
+/* hover band behind the column, so the pointer is never lost on a short bar */
+.bar-col::before{
+  content:"";position:absolute;inset:0 0 22px 0;border-radius:8px;
+  background:var(--surface2);opacity:0;transition:opacity .15s;pointer-events:none;
+}
+.bar-col:hover::before{opacity:1;}
+.bar-wrap{flex:1;display:flex;align-items:flex-end;width:100%;position:relative;z-index:1;}
+/* a day with no sales: a baseline stub, so the week still reads as seven days */
+.bar-empty{
+  width:100%;height:3px;border-radius:2px;position:relative;
+  background:var(--border);
+}
+.bar-col:hover .bar-empty{background:var(--accent);}
 .bar-animated{
   width:100%;background:var(--accent);border-radius:4px 4px 0 0;
   min-height:0;position:relative;
-  transition:height .6s cubic-bezier(.34,1.56,.64,1);
+  transition:height .6s cubic-bezier(.34,1.56,.64,1), filter .15s;
   animation:barRise .7s cubic-bezier(.34,1.56,.64,1) forwards;
 }
-.bar-animated:hover{filter:brightness(1.25);transform:scaleY(1.04);transform-origin:bottom;}
+.bar-animated:hover{filter:brightness(1.25);transform:scaleY(1.03);transform-origin:bottom;}
 @keyframes barRise{
   from{height:0!important;opacity:0;}
   to{opacity:1;}
 }
-.bar-label{font-size:11px;color:var(--muted);}
+.bar-label{font-size:11px;color:var(--muted);position:relative;z-index:1;}
+.bar-col:hover .bar-label{color:var(--text);font-weight:600;}
+
+/* rich hover card: header line, then one coloured label + value per row */
 .bar-tooltip{
-  display:none;position:absolute;top:-30px;left:50%;transform:translateX(-50%);
-  background:var(--surface);border:1px solid var(--accent);border-radius:6px;
-  padding:3px 8px;font-size:11px;color:var(--accent);white-space:nowrap;z-index:10;
-  font-family:var(--font-mono);pointer-events:none;
+  display:none;position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);
+  background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18);
+  padding:12px 14px;min-width:190px;z-index:30;
+  text-align:left;white-space:nowrap;pointer-events:none;
+  animation:barTipIn .12s ease-out;
 }
-.bar-animated:hover .bar-tooltip{display:block;}
+@keyframes barTipIn{
+  from{opacity:0;transform:translateX(-50%) translateY(4px);}
+  to{opacity:1;transform:translateX(-50%) translateY(0);}
+}
+.bar-tip-head{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.3px;}
+.bar-tip-row{display:flex;align-items:center;gap:8px;font-size:13px;line-height:1.7;}
+.bar-tip-row .k{color:var(--accent);}
+.bar-tip-row .k.k2{color:var(--accent2);}
+.bar-tip-row .k.k3{color:var(--orange,#fdaf74);}
+.bar-tip-row .v{color:var(--text);font-weight:700;font-family:var(--font-mono);margin-left:auto;}
+.bar-col:hover .bar-tooltip{display:block;}
 .stock-bar{height:4px;background:var(--border);border-radius:2px;margin-top:4px;overflow:hidden;}
 .stock-fill{height:100%;border-radius:2px;transition:width .3s;}
 
