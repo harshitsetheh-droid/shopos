@@ -328,6 +328,43 @@ test('excluded documents are listed as explanations', () => {
   assert.strictEqual(r.explanations.excludedDocs[0].invoiceNo, 'E/001');
 });
 
+// Books counted cancelled and draft documents, so the panel was permanently
+// non-zero for any period that had one and a real imbalance looked like noise.
+test('books counts only the documents that belong in the return', () => {
+  const d = [
+    sale({ id: 'A', invoice_no: 'A/1', cust_gstin: GSTIN_MH, date: '2026-08-03' }),
+    sale({ id: 'B', invoice_no: 'B/1', doc_type: 'estimate', date: '2026-08-04' }),
+    sale({ id: 'C', invoice_no: 'C/1', status: 'draft', date: '2026-08-05' }),
+    sale({ id: 'D', invoice_no: 'D/1', doc_status: 'cancelled', date: '2026-08-06' }),
+  ].map((s) => normalizeSale(s, cfg, idx));
+  const g1 = buildGSTR1(d, cfg, { period: '2026-08' });
+  const g3 = buildGSTR3B(d.filter((x) => !x.isDraft && !x.isCancelled), {}, {}, g1, cfg);
+  const r = reconcileBooksVsReturn(d, g1, g3, cfg);
+  assert.strictEqual(r.books.documentCount, 1);
+  assert.strictEqual(r.differences.booksVsGstr1TaxablePaise, 0n);
+  assert.strictEqual(r.balanced, true);
+  // ...and each excluded document is explained exactly once
+  const e = r.explanations;
+  assert.strictEqual(e.excludedDocs.length, 1);
+  assert.strictEqual(e.draftDocs.length, 1);
+  assert.strictEqual(e.cancelledDocs.length, 1);
+  const nums = [...e.excludedDocs, ...e.draftDocs, ...e.cancelledDocs].map((x) => x.invoiceNo);
+  assert.deepStrictEqual(nums.slice().sort(), ['B/1', 'C/1', 'D/1']);
+});
+
+// A draft used to be reported as "not a return document (Tax Invoice)" AND as a
+// draft, which double-counted it and described a perfectly ordinary invoice type
+// as though it did not belong in a return at all.
+test('a draft tax invoice is explained as a draft, not as an unknown document type', () => {
+  const d = [sale({ id: 'C', invoice_no: 'C/1', status: 'draft', date: '2026-08-05' })]
+    .map((s) => normalizeSale(s, cfg, idx));
+  const g1 = buildGSTR1(d, cfg, { period: '2026-08' });
+  const r = reconcileBooksVsReturn(d, g1, buildGSTR3B([], {}, {}, g1, cfg), cfg);
+  assert.strictEqual(r.explanations.excludedDocs.length, 0);
+  assert.strictEqual(r.explanations.draftDocs.length, 1);
+  assert.strictEqual(r.explanations.draftDocs[0].invoiceNo, 'C/1');
+});
+
 // ── annual turnover ─────────────────────────────────────────────────────────
 test('annual turnover aggregates taxable + exempt + exports for the FY', () => {
   const all = [

@@ -333,7 +333,14 @@ function reconcileBooksVsReturn(docs, gstr1, gstr3b, cfg) {
   // sign separately when it builds its rows. Books must use the same sign, or a
   // ₹250 credit note is added instead of subtracted and the Books-vs-Return
   // panel reports a phantom ₹500 gap on every period that contains a note.
-  const saleDocs = docs.filter((d) => classifySupply(d, config) !== 'excluded');
+  // Books = the documents that BELONG in this return: finalised, non-draft, and
+  // of a type that appears in a return at all.
+  //
+  // Including cancelled or draft documents here made the panel permanently
+  // non-zero for any period that had one, so a genuine imbalance could not be
+  // told apart from ordinary noise. They are listed under explanations instead.
+  const inReturn = (d) => classifySupply(d, config) !== 'excluded' && !d.isDraft && !d.isCancelled;
+  const saleDocs = docs.filter(inReturn);
   const signed = (d, v) => (d.isNegative ? -v : v);
   const booksTaxable = saleDocs.reduce((a, d) => a + signed(d, d.totals.taxablePaise), ZERO);
   const booksTax = saleDocs.reduce(
@@ -347,10 +354,16 @@ function reconcileBooksVsReturn(docs, gstr1, gstr3b, cfg) {
   const gstr3bTaxable = (gstr3b && gstr3b.totals ? gstr3b.totals.taxablePaise : ZERO);
   const gstr3bTax = (gstr3b && gstr3b.totals ? gstr3b.totals.taxPaise : ZERO);
 
-  // Documents excluded from the return explain any gap
-  const excluded = docs.filter((d) => classifySupply(d, config) === 'excluded');
-  const cancelled = docs.filter((d) => d.isCancelled);
-  const drafts = docs.filter((d) => d.isDraft);
+  // Everything the return left out, each document in exactly ONE bucket. A draft
+  // used to be reported both as excluded ("not a return document — Tax Invoice",
+  // which is nonsense) and as a draft, double-counting it in the totals.
+  const buckets = { excluded: [], cancelled: [], drafts: [] };
+  for (const d of docs) {
+    if (d.isDraft) buckets.drafts.push(d);
+    else if (d.isCancelled) buckets.cancelled.push(d);
+    else if (classifySupply(d, config) === 'excluded') buckets.excluded.push(d);
+  }
+  const { excluded, cancelled, drafts } = buckets;
 
   return {
     books: {
