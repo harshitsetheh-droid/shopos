@@ -34,7 +34,7 @@ Open the printed URL, sign up, and press **Alt+G** for the GST screen.
 ### Tests
 
 ```bash
-# 158 unit tests, no database needed
+# 167 unit tests, no database needed
 node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
           "gst/tests/classify.test.js" "gst/tests/gstin.test.js" \
           "gst/tests/gstr1.test.js" "gst/tests/gstr3b.test.js" \
@@ -101,7 +101,12 @@ record carries a non-zero rate is a **blocker**, not a rounding artefact. This
 is the single most common way a shop's books silently diverge from its returns.
 
 **Credit and debit notes** reduce (or increase) liability and must link to the
-invoice they adjust; an unlinked one is a blocker.
+invoice they adjust; an unlinked one is a blocker. When the linked invoice falls
+in an earlier period, the note is also reported in the GSTR-1 amendments section
+— the original period is resolved from the linked invoice number, since nothing
+records it explicitly. Invoice numbers must be unique per series across the
+whole financial year, so a number reused in a sibling month is a blocker even
+though both periods validate clean on their own.
 
 **Money.** All amounts are integer paise held in `BigInt` (`gst/money.js`). No
 floats anywhere in the arithmetic — 0.1 + 0.2 problems in a tax return are not

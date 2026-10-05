@@ -42,6 +42,8 @@ function buildReturn(input) {
     masterIndex,
     lockedPeriods: new Set(input.lockedPeriods || []),
     annualTurnoverRupees: input.annualTurnoverRupees || 0,
+    // Needed to spot an invoice number reused in another month of the same FY.
+    allDocs,
   });
 
   // 3. GSTR-1

@@ -26,7 +26,10 @@ function issue(severity, code, message, doc, extra) {
 
 /**
  * @param {Array} docs  normalised documents in the period (incl. cancelled)
- * @param {object} ctx  { lockedPeriods:Set, cfg, masterIndex, gstin }
+ * @param {object} ctx  { lockedPeriods:Set, cfg, masterIndex, gstin, allDocs }
+ *   `allDocs` is every document across all periods. Invoice numbers must be
+ *   unique per series for the whole financial year, not just within one period,
+ *   and a period-only view cannot see a number reused in a sibling month.
  */
 function validateForFiling(docs, ctx) {
   const config = (ctx && ctx.cfg) || DEFAULT_CONFIG;
@@ -65,6 +68,18 @@ function validateForFiling(docs, ctx) {
 
   const seenInvoiceNos = new Map();  // invoiceNo -> docId  (duplicate detection)
   const perSeries = new Map();       // series -> [numeric suffix] (gap detection)
+
+  // Invoice numbers must be unique per series across the whole financial year.
+  // The docs passed in are one period, so a number reused in another month was
+  // invisible here — a filing the portal rejects, reported as clean.
+  const fySeen = new Map();          // `${fy}|${series}|${invoiceNo}` -> [{period, id}]
+  for (const d of (ctx && ctx.allDocs) || []) {
+    if (!d.invoiceNo || d.isDraft) continue;
+    const series = String(d.raw?.invoice_series || d.docTypeLabel || '');
+    const key = `${d.financialYear}|${series}|${String(d.invoiceNo).trim().toUpperCase()}`;
+    if (!fySeen.has(key)) fySeen.set(key, []);
+    fySeen.get(key).push(d);
+  }
 
   for (const doc of docs) {
     const n = doc.invoiceNo;
@@ -123,6 +138,18 @@ function validateForFiling(docs, ctx) {
           { fix: 'Give each document a unique invoice number' }));
       }
       seenInvoiceNos.set(n, doc.id);
+
+      // same number, different period, same financial year — invisible to the
+      // within-period check above
+      const dupSeries = String(doc.raw?.invoice_series || doc.docTypeLabel || '');
+      const dupes = (fySeen.get(`${doc.financialYear}|${dupSeries}|${String(n).trim().toUpperCase()}`) || [])
+        .filter((x) => x.id !== doc.id);
+      if (dupes.length) {
+        issues.push(issue(BLOCKER, 'DUPLICATE_INVOICE_NO',
+          `Invoice number "${n}" is also used in ${dupes.map((x) => x.period).join(', ')} — `
+          + 'invoice numbers must be unique across the financial year.', doc,
+          { fix: 'Renumber this document, or raise a credit note against the earlier one' }));
+      }
 
       // gap detection within a series (numeric suffix only)
       const series = String(doc.raw?.invoice_series || doc.docTypeLabel);

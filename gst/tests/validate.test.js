@@ -79,6 +79,56 @@ test('a taxable line with no rate and no declaration is still a BLOCKER', () => 
   const r = V([sale({ items: [NON_TAXABLE_ITEM], tax: 0, total: 100 })]);
   assert.ok(has(r, 'RATE_MISSING'), blockers(r).join(','));
 });
+
+// Invoice numbers must be unique per series for the whole financial year, but
+// validateForFiling only ever saw one period — so the same number reused in a
+// sibling month reported clean and the portal would reject the filing.
+const dupCheck = (rows, period) => {
+  const all = rows.map((r) => normalizeSale(r, cfg, idx));
+  return validateForFiling(all.filter((d) => d.period === period), { cfg, masterIndex: idx, allDocs: all });
+};
+
+test('an invoice number reused in another month of the same FY is a BLOCKER', () => {
+  const rows = [
+    sale({ id: 'S1', invoice_no: 'A/001', invoice_series: 'A', date: '2026-08-03' }),
+    sale({ id: 'S2', invoice_no: 'A/001', invoice_series: 'A', date: '2026-10-02' }),
+  ];
+  for (const p of ['2026-08', '2026-10']) {
+    const r = dupCheck(rows, p);
+    assert.ok(has(r, 'DUPLICATE_INVOICE_NO'), `${p}: ${blockers(r).join(',')}`);
+    const msg = r.blockers.find((b) => b.code === 'DUPLICATE_INVOICE_NO').message;
+    assert.ok(/financial year/.test(msg), msg);
+  }
+});
+
+test('distinct invoice numbers across months raise nothing', () => {
+  const rows = [
+    sale({ id: 'S1', invoice_no: 'A/001', invoice_series: 'A', date: '2026-08-03' }),
+    sale({ id: 'S2', invoice_no: 'A/002', invoice_series: 'A', date: '2026-10-02' }),
+  ];
+  for (const p of ['2026-08', '2026-10']) {
+    assert.ok(!has(dupCheck(rows, p), 'DUPLICATE_INVOICE_NO'), `${p}: ${blockers(dupCheck(rows, p)).join(',')}`);
+  }
+});
+
+test('the same invoice number in a different financial year is allowed', () => {
+  const rows = [
+    sale({ id: 'S1', invoice_no: 'A/001', invoice_series: 'A', date: '2026-08-03' }),
+    sale({ id: 'S2', invoice_no: 'A/001', invoice_series: 'A', date: '2027-04-02' }),
+  ];
+  for (const p of ['2026-08', '2027-04']) {
+    assert.ok(!has(dupCheck(rows, p), 'DUPLICATE_INVOICE_NO'), `${p}: ${blockers(dupCheck(rows, p)).join(',')}`);
+  }
+});
+
+test('a cancelled document still holds on to its invoice number', () => {
+  const rows = [
+    sale({ id: 'S1', invoice_no: 'A/001', invoice_series: 'A', date: '2026-08-03' }),
+    sale({ id: 'S2', invoice_no: 'A/001', invoice_series: 'A', date: '2026-10-02', doc_status: 'cancelled' }),
+  ];
+  assert.ok(has(dupCheck(rows, '2026-10'), 'DUPLICATE_INVOICE_NO'), blockers(dupCheck(rows, '2026-10')).join(','));
+});
+
 const warnings = (r) => r.warnings.map((i) => i.code);
 
 test('clean data passes with zero blockers', () => {
