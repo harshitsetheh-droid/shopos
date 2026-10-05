@@ -182,7 +182,8 @@ function buildGSTR1(docs, cfg, opts) {
           || config.exports.withoutPayment,
       };
       for (const l of doc.lines) { row.taxablePaise += l.taxablePaise * sign; row.igstPaise += l.igstPaise * sign; }
-      const target = doc.supplyType === 'sez' ? out.sez : out.exp;
+      const isSez = doc.supplyType === 'sez' || doc.docType === 'sez_invoice';
+      const target = isSez ? out.sez : out.exp;
       target.push(row);
       continue;
     }

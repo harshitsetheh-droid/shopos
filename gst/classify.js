@@ -215,7 +215,12 @@ function classifySupply(doc, cfg) {
 
   const hasTax = lines.some((l) => (l.cgstPaise + l.sgstPaise + l.igstPaise) > 0n);
   if (hasTax) {
-    if (doc.supplyType === 'export' || doc.supplyType === 'sez') return 'zero_rated';
+    // Infer from the document type as well as supply_type. A document typed
+    // "export_invoice" is an export whatever supply_type says, and if that column
+    // is ever lost the sale would otherwise be booked as a domestic supply —
+    // IGST to a foreign buyer reported as an ordinary B2B sale.
+    if (doc.supplyType === 'export' || doc.supplyType === 'sez'
+      || doc.docType === 'export_invoice' || doc.docType === 'sez_invoice') return 'zero_rated';
     return 'taxable';
   }
   // No tax on any line — decide nil / exempt / non-GST

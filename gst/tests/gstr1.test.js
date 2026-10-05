@@ -153,6 +153,28 @@ test('zero-rated export goes to the exports table, not B2C', () => {
   assert.ok(g.exp[0].igstPaise > 0n);
 });
 
+// supply_type is what routes an export, but it is only one signal. A document
+// typed export_invoice is an export even if that column is missing or stale —
+// otherwise the sale is booked as a domestic B2B supply and IGST to a foreign
+// buyer is reported as an ordinary intra-state sale.
+test('the document type alone identifies an export', () => {
+  const g = build([sale({ doc_type: 'export_invoice', place_of_supply: '96', is_interstate: true,
+    items: [line({ gst: 0, cgst: 0, sgst: 0, igst: 5 })] })]);
+  assert.strictEqual(g.exp.length, 1, 'must not fall into B2B/B2C');
+  assert.strictEqual(g.b2cs.length, 0);
+  assert.strictEqual(g.b2b.length, 0);
+  assert.ok(g.exp[0].igstPaise > 0n);
+});
+
+test('the document type alone identifies a SEZ supply', () => {
+  // A SEZ supply is always treated as inter-state, so the line carries IGST.
+  const g = build([sale({ doc_type: 'sez_invoice', place_of_supply: '27', is_interstate: true,
+    items: [line({ gst: 0, cgst: 0, sgst: 0, igst: 5 })] })]);
+  assert.strictEqual(g.sez.length, 1, 'must land in the SEZ table, not the exports table');
+  assert.strictEqual(g.exp.length, 0);
+  assert.ok(g.sez[0].igstPaise > 0n);
+});
+
 // The return is built from raw DB rows, so snake_case is the shape that matters.
 // This used to read only the camelCase key and reported every export as WOPAY,
 // which puts paid exports into the wrong GSTR-1 8A/8B box on a real filing.

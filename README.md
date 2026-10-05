@@ -34,7 +34,7 @@ Open the printed URL, sign up, and press **Alt+G** for the GST screen.
 ### Tests
 
 ```bash
-# 167 unit tests, no database needed
+# 170 unit tests, no database needed
 node --test "gst/tests/config.test.js" "gst/tests/money.test.js" \
           "gst/tests/classify.test.js" "gst/tests/gstin.test.js" \
           "gst/tests/gstr1.test.js" "gst/tests/gstr3b.test.js" \
@@ -116,6 +116,12 @@ rounding differences, they are wrong filings.
 return shows the difference, and a non-zero difference is surfaced rather than
 hidden. 3.2 is a memorandum disclosure of supplies already counted in 3.1(a) and
 3.1(b), so it is deliberately *not* added into totals.
+
+**Books vs return** puts your raw documents next to the GSTR-1 and GSTR-3B totals
+and shows the difference between all three, plus which excluded, draft and
+cancelled documents explain any gap. A credit note reduces both sides by the same
+amount, so a period containing one reconciles to zero rather than showing a
+phantom gap.
 
 **Set-off order** comes from `setOffOrder` in config, expressed as
 `[creditHead, liabilityHead]` pairs. Cess first; then IGST credit against IGST,

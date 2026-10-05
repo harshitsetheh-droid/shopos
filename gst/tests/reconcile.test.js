@@ -297,6 +297,27 @@ test('books total equals GSTR-1 when nothing is excluded', () => {
   assert.strictEqual(r.balanced, true);
 });
 
+// doc.totals is the unsigned line sum; GSTR-1 applies the credit/debit-note sign
+// when it builds its rows. Books added the unsigned total, so a ₹250 credit note
+// was added instead of subtracted and the Books-vs-Return panel reported a
+// phantom ₹500 gap on every period containing a note — and reported unbalanced.
+test('a credit note reduces the books total rather than inflating it', () => {
+  const d = [
+    sale({ id: 'F1', invoice_no: 'F/001', cust_gstin: GSTIN_MH,
+      items: [line({ qty: 4, price: 250 })], sub: 1000, tax: 50, total: 1050 }),
+    sale({ id: 'F6', doc_type: 'credit_note', invoice_no: 'F/CN1', cust_gstin: GSTIN_MH,
+      linked_invoice_no: 'F/001', items: [line({ qty: 1, price: 250 })],
+      sub: -250, tax: -12.5, total: -262.5 }),
+  ].map((s) => normalizeSale(s, cfg, idx));
+  const g1 = buildGSTR1(d, cfg, { period: '2026-08' });
+  const g3 = buildGSTR3B(d, {}, {}, g1, cfg);
+  const r = reconcileBooksVsReturn(d, g1, g3, cfg);
+  assert.strictEqual(r.books.taxablePaise, 75000n, '1000 − 250');
+  assert.strictEqual(r.differences.booksVsGstr1TaxablePaise, 0n);
+  assert.strictEqual(r.differences.booksVsGstr1TaxPaise, 0n);
+  assert.strictEqual(r.balanced, true);
+});
+
 test('excluded documents are listed as explanations', () => {
   const d = [sale({ cust_gstin: GSTIN_MH }), sale({ id: 'TXN-9', invoice_no: 'E/001', doc_type: 'estimate' })]
     .map((s) => normalizeSale(s, cfg, idx));

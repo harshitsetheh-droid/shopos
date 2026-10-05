@@ -328,10 +328,16 @@ function reconcileBooksVsReturn(docs, gstr1, gstr3b, cfg) {
   const config = cfg || DEFAULT_CONFIG;
 
   // Books: every real sale document in the period (excluding non-sale docs)
+  //
+  // doc.totals is the UNSIGNED line sum — GSTR-1 applies the credit/debit-note
+  // sign separately when it builds its rows. Books must use the same sign, or a
+  // ₹250 credit note is added instead of subtracted and the Books-vs-Return
+  // panel reports a phantom ₹500 gap on every period that contains a note.
   const saleDocs = docs.filter((d) => classifySupply(d, config) !== 'excluded');
-  const booksTaxable = saleDocs.reduce((a, d) => a + d.totals.taxablePaise, ZERO);
+  const signed = (d, v) => (d.isNegative ? -v : v);
+  const booksTaxable = saleDocs.reduce((a, d) => a + signed(d, d.totals.taxablePaise), ZERO);
   const booksTax = saleDocs.reduce(
-    (a, d) => a + d.totals.cgstPaise + d.totals.sgstPaise + d.totals.igstPaise + d.totals.cessPaise, ZERO);
+    (a, d) => a + signed(d, d.totals.cgstPaise + d.totals.sgstPaise + d.totals.igstPaise + d.totals.cessPaise), ZERO);
 
   const gstr1Taxable = (gstr1 && gstr1.totals ? gstr1.totals.taxablePaise : ZERO);
   const gstr1Tax = (gstr1 && gstr1.totals
