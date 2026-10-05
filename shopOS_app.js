@@ -3419,7 +3419,7 @@ function finalizeCheckout(){
         const saleIdTemp='TXN-'+String(nextSaleId++).padStart(6,'0');
         const sale={
           id:saleIdTemp, customerName:custName||'Walk-in', customerPhone:custPhone,
-          items:cart.map(i=>({name:i.name,qty:i.qty,price:i.customPrice!=null?i.customPrice:i.price,gst:i.gst||0,originalPrice:i.price,customPrice:i.customPrice!=null?i.customPrice:null,basePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.price:i.price;})(),overrideDisc:i.overrideDisc!=null?i.overrideDisc:null,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.purchasePrice||0:0;})()})),
+          items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.customPrice!=null?i.customPrice:i.price,gst:i.gst||0,cgst:i.cgst||0,sgst:i.sgst||0,igst:i.igst||0,hsn:i.hsn||(()=>{const _m=products.find(x=>x.id===i.id);return _m?_m.hsn||'':'';})(),uqc:i.uqc||(()=>{const _m=products.find(x=>x.id===i.id);return _m?_m.uqc||'':'';})(),originalPrice:i.price,customPrice:i.customPrice!=null?i.customPrice:null,basePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.price:i.price;})(),overrideDisc:i.overrideDisc!=null?i.overrideDisc:null,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.purchasePrice||0:0;})()})),
           sub,tax,total,actualTotal:cartTotal,method:'Udhaar',amtPaid,pending:0,
           date:_localDateStr(),taxApplied:applyTax,payType:'paid',change:returnAmt>0?returnAmt:0,
           discountPct:ct.discountPct, discount:ct.discount,
@@ -3457,7 +3457,7 @@ function finalizeCheckout(){
     const sale={
       id:saleId, customerName:custName||'Walk-in', customerPhone:custPhone,
       customerLocation:custLocation, intra,
-      items:cart.map(i=>({name:i.name,qty:i.qty,price:i.customPrice!=null?i.customPrice:i.price,gst:i.gst||0,cgst:i.cgst||0,sgst:i.sgst||0,igst:i.igst||0,originalPrice:i.price,customPrice:i.customPrice!=null?i.customPrice:null,basePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.price:i.price;})(),overrideDisc:i.overrideDisc!=null?i.overrideDisc:null,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.purchasePrice||0:0;})()})),
+      items:cart.map(i=>({id:i.id,name:i.name,qty:i.qty,price:i.customPrice!=null?i.customPrice:i.price,gst:i.gst||0,cgst:i.cgst||0,sgst:i.sgst||0,igst:i.igst||0,hsn:i.hsn||(()=>{const _m=products.find(x=>x.id===i.id);return _m?_m.hsn||'':'';})(),uqc:i.uqc||(()=>{const _m=products.find(x=>x.id===i.id);return _m?_m.uqc||'':'';})(),originalPrice:i.price,customPrice:i.customPrice!=null?i.customPrice:null,basePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.price:i.price;})(),overrideDisc:i.overrideDisc!=null?i.overrideDisc:null,purchasePrice:(()=>{const _p=products.find(x=>x.id===i.id);return _p?_p.purchasePrice||0:0;})()})),
       sub,tax,total,actualTotal,method,amtPaid,pending,
       date:_localDateStr(),taxApplied:applyTax,payType,
       udhaarIncluded:extraUd>0,extraUdhaarAmount:extraUd,change,
@@ -6111,7 +6111,7 @@ function finalizeAdvOrder(){
     // would make the GST engine read a genuinely taxable product as nil-rated.
     // Carry the real rate through so the CRITICAL ""taxable item on a non-GST
     // bill"" check fires instead of a silently wrong return.
-    items:o.items.map(i=>{const _p=products.find(x=>x.id===i.productId);return {name:i.productName,qty:i.qty,price:i.price,gst:(_p&&_p.gst)||0,cgst:(_p&&_p.cgst)||0,sgst:(_p&&_p.sgst)||0,igst:(_p&&_p.igst)||0,purchasePrice:(_p&&_p.purchasePrice)||0};}),
+    items:o.items.map(i=>{const _p=products.find(x=>x.id===i.productId);return {id:i.productId,name:i.productName,qty:i.qty,price:i.price,gst:(_p&&_p.gst)||0,cgst:(_p&&_p.cgst)||0,sgst:(_p&&_p.sgst)||0,igst:(_p&&_p.igst)||0,hsn:(_p&&_p.hsn)||i.hsn||'',uqc:(_p&&_p.uqc)||'',purchasePrice:(_p&&_p.purchasePrice)||0};}),
     sub:orderTotal,tax:0,total:orderTotal,method,amtPaid:totalPaid,pending,
     date:saleDate,taxApplied:false,payType:pending>0?'partial':'paid',
     // Advance-order bills keep the same document defaults as the checkout screen;
@@ -6544,27 +6544,45 @@ let _reportsFilter = 'all'; // 'today','yesterday','week','month','all','custom'
 let _reportsFrom = '', _reportsTo = '';
 let _reportsUdhaarMode = false;
 
-function getFilteredSalesForReports(){
+/**
+ * The window the reports screen is currently showing.
+ *
+ * Sales and expenses must be filtered by the SAME range, so this is the single
+ * place it is defined. It used to be computed inside getFilteredSalesForReports
+ * and then thrown away, with renderReports re-deriving the expense window from
+ * scratch and handling only "today" and "yesterday" — so Last 7 Days, This Month
+ * and a custom range all subtracted every expense the shop had ever recorded from
+ * that period's profit.
+ *
+ * @returns {{from:Date|null, to:Date|null, all:boolean}}
+ */
+function reportsDateRange(){
   const now = new Date();
-  let from, to;
   if(_reportsFilter==='today'){
-    from=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-    to=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999);
-  } else if(_reportsFilter==='yesterday'){
-    from=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
-    to=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1,23,59,59,999);
-  } else if(_reportsFilter==='week'){
-    from=new Date(now); from.setDate(from.getDate()-7);
-    to=now;
-  } else if(_reportsFilter==='month'){
-    from=new Date(now.getFullYear(),now.getMonth(),1);
-    to=now;
-  } else if(_reportsFilter==='custom' && _reportsFrom && _reportsTo){
-    from=new Date(_reportsFrom);
-    to=new Date(_reportsTo); to.setHours(23,59,59,999);
-  } else {
-    return sales;
+    return { from:new Date(now.getFullYear(),now.getMonth(),now.getDate()),
+             to:new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999), all:false };
   }
+  if(_reportsFilter==='yesterday'){
+    return { from:new Date(now.getFullYear(),now.getMonth(),now.getDate()-1),
+             to:new Date(now.getFullYear(),now.getMonth(),now.getDate()-1,23,59,59,999), all:false };
+  }
+  if(_reportsFilter==='week'){
+    const from=new Date(now); from.setDate(from.getDate()-7);
+    return { from, to:now, all:false };
+  }
+  if(_reportsFilter==='month'){
+    return { from:new Date(now.getFullYear(),now.getMonth(),1), to:now, all:false };
+  }
+  if(_reportsFilter==='custom' && _reportsFrom && _reportsTo){
+    const to=new Date(_reportsTo); to.setHours(23,59,59,999);
+    return { from:new Date(_reportsFrom), to, all:false };
+  }
+  return { from:null, to:null, all:true };
+}
+
+function getFilteredSalesForReports(){
+  const { from, to, all } = reportsDateRange();
+  if (all) return sales;
   return sales.filter(s=>{ const d=new Date(s.date); return d>=from&&d<=to; });
 }
 
@@ -6592,11 +6610,9 @@ function renderReports(){
   document.getElementById('reportsFilterWrap').innerHTML = filterHtml;
 
   const totalProfit = calcProfit(filteredSales);
-  const totalPeriodExpenses = calcPeriodExpenses(
-    _reportsFilter==='today'?new Date(new Date().setHours(0,0,0,0)):
-    _reportsFilter==='yesterday'?new Date(new Date().setDate(new Date().getDate()-1)):null,
-    null
-  );
+  // Same window as the sales above — see reportsDateRange().
+  const repRange = reportsDateRange();
+  const totalPeriodExpenses = calcPeriodExpenses(repRange.from, repRange.to);
   const netProfit = totalProfit - totalPeriodExpenses;
   document.getElementById('reportStats').innerHTML=`
     <div class="stat-card yellow interactive-card" onclick="navigate('sales')" title="Click to view all sales">
