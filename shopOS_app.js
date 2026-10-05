@@ -1671,11 +1671,15 @@ function scanAddAsNewProduct(){
 let _expFilter = 'all';
 let _expCatFilter = '';
 
-function calcExpenses(salesArr){
-  if(!salesArr) return 0;
-  return expenses.reduce((a,e)=>{
-    return a + (Number(e.amount)||0);
-  }, 0);
+/**
+ * Every expense ever recorded. Takes no arguments on purpose.
+ *
+ * This used to be calcExpenses(salesArr) and ignored salesArr, so a caller with a
+ * filtered sales array silently got lifetime expenses subtracted from a single
+ * period. Use calcPeriodExpenses(from, to) for anything scoped to a range.
+ */
+function totalExpenses(){
+  return expenses.reduce((a,e)=>a + (Number(e.amount)||0), 0);
 }
 
 function calcPeriodExpenses(fromDate, toDate){
@@ -1687,8 +1691,13 @@ function calcPeriodExpenses(fromDate, toDate){
   }, 0);
 }
 
-function calcNetProfit(salesArr){
-  return calcProfit(salesArr) - calcExpenses(salesArr);
+/**
+ * Profit over an explicit range. Both halves must be scoped the same way, so the
+ * caller passes the window rather than a sales array — profit follows the sales,
+ * expenses follow the dates.
+ */
+function calcNetProfit(salesArr, fromDate, toDate){
+  return calcProfit(salesArr) - calcPeriodExpenses(fromDate, toDate);
 }
 
 function openAddExpense(){
@@ -6206,7 +6215,7 @@ function renderDashboard(){
   const todayProfit = calcProfit(todaySales);
   const totalProfit = calcProfit(sales);
   const todayExpenses = calcPeriodExpenses(new Date(new Date().setHours(0,0,0,0)), new Date());
-  const totalExpenses = calcExpenses(sales);
+  const totalExpenses = totalExpenses();
   const netTodayProfit = todayProfit - todayExpenses;
   const netTotalProfit = totalProfit - totalExpenses;
   const lowItems=products.filter(p=>p.stock<=p.low).length;
