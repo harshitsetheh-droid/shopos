@@ -45,7 +45,7 @@ function buildReturn(input) {
   });
 
   // 3. GSTR-1
-  const g1 = gstr1.buildGSTR1(periodDocs, cfg, { period: periodStr });
+  const g1 = gstr1.buildGSTR1(periodDocs, cfg, { period: periodStr, allDocs });
 
   // 4. GSTR-3B (ITC from reconciliation only)
   const recon = reconcile.reconcile2B(

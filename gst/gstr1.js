@@ -13,6 +13,9 @@ const {
 } = require('./classify');
 const { stateName } = require('./gstin');
 const { formatDate, requiresIFF } = require('./period');
+// normInvoiceNo lives in reconcile, which does not require this module, so the
+// import is safe and keeps one definition of "same invoice number".
+const { normInvoiceNo } = require('./reconcile');
 
 const ZERO = 0n;
 
@@ -241,16 +244,37 @@ function buildGSTR1(docs, cfg, opts) {
   out.docs_issued = buildDocumentsIssued(eligible, config);
 
   // ── Amendments: corrections pointing at an earlier period ────────────────
-  out.amendments = taxDocs.filter((d) => {
-    const prior = d.raw?.original_invoice_period;
-    return !!prior && String(prior) !== String(d.period);
-  }).map((d) => ({
-    invoiceNumber: d.invoiceNo,
-    invoiceDate: formatDate(d.date),
-    originalPeriod: String(d.raw.original_invoice_period),
-    originalInvoiceNumber: String(d.raw.original_invoice_no || ''),
-    reason: String(d.raw.amendment_reason || ''),
-  }));
+  // A credit/debit note only carries the original invoice NUMBER. Resolving the
+  // original period needs the other periods' documents, which buildGSTR1 does not
+  // have — so buildReturn passes them in `opts.allDocs`. Without that lookup a
+  // note raised in September against an August invoice was never reported as an
+  // amendment, and the section stayed empty in practice.
+  const originals = new Map();
+  for (const d of (opts.allDocs || docs)) {
+    if (d.invoiceNo) originals.set(normInvoiceNo(d.invoiceNo), d);
+  }
+  out.amendments = taxDocs.map((d) => {
+    let originalPeriod = String(d.raw?.original_invoice_period || '').trim();
+    const linkedNo = String(d.raw?.original_invoice_no || d.raw?.linked_invoice_no || '').trim();
+    let originalNo = linkedNo;
+    if (!originalPeriod && linkedNo) {
+      const found = originals.get(normInvoiceNo(linkedNo));
+      // Only an amendment if it really resolves to a different, earlier document
+      // — not the note pointing at itself.
+      if (found && found.id !== d.id && found.period !== d.period) {
+        originalPeriod = found.period;
+        originalNo = found.invoiceNo || linkedNo;
+      }
+    }
+    return { d, originalPeriod, originalNo };
+  }).filter((x) => x.originalPeriod && x.originalPeriod !== String(x.d.period))
+    .map((x) => ({
+      invoiceNumber: x.d.invoiceNo,
+      invoiceDate: formatDate(x.d.date),
+      originalPeriod: x.originalPeriod,
+      originalInvoiceNumber: x.originalNo,
+      reason: String(x.d.raw?.amendment_reason || x.d.raw?.note_reason || ''),
+    }));
 
   // ── Totals ──────────────────────────────────────────────────────────────
   out.totals = grandTotals(out);

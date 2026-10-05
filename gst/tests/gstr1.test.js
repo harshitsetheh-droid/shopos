@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { normalizeSale, buildMasterIndex } = require('../classify');
 const { buildGSTR1 } = require('../gstr1');
+const { buildReturn } = require('../index');
 const { cfg, sale, line, products, GSTIN_MH } = require('./fixtures');
 
 const idx = buildMasterIndex(products);
@@ -193,4 +194,52 @@ test('amendments are collected when the original period differs', () => {
   })]);
   assert.strictEqual(g.amendments.length, 1);
   assert.strictEqual(g.amendments[0].originalPeriod, '2026-07');
+});
+
+// A credit note only carries the original invoice NUMBER. The billing screen
+// never sets original_invoice_period, so amendments used to come out empty in
+// practice and the section of GSTR-1 that reports corrections against a filed
+// period was silently blank. buildReturn now passes the other periods' documents
+// so the original period can be resolved from the linked invoice number.
+test('an amendment resolves its original period from the linked invoice number', () => {
+  const out = buildReturn({
+    sales: [
+      sale({ id: 'ORIG', invoice_no: 'A/001', cust_gstin: GSTIN_MH, date: '2026-08-15',
+        items: [line({ qty: 1 })], sub: 100, tax: 5, total: 105 }),
+      sale({ id: 'CN', doc_type: 'credit_note', invoice_no: 'CN/001', cust_gstin: GSTIN_MH,
+        linked_invoice_no: 'A/001', date: '2026-09-20',
+        items: [line({ qty: 1 })], sub: -100, tax: -5, total: -105 }),
+    ],
+    products, cfg, period: '2026-09', lockedPeriods: ['2026-08'],
+  });
+  assert.strictEqual(out.gstr1.amendments.length, 1);
+  const a = out.gstr1.amendments[0];
+  assert.strictEqual(a.invoiceNumber, 'CN/001');
+  assert.strictEqual(a.originalPeriod, '2026-08');
+  assert.strictEqual(a.originalInvoiceNumber, 'A/001');
+  assert.strictEqual(out.gstr1.cdnr.length, 1, 'and it still appears in the CDN table');
+});
+
+test('a note pointing at an invoice in the same period is not an amendment', () => {
+  const out = buildReturn({
+    sales: [
+      sale({ id: 'A', invoice_no: 'B/001', cust_gstin: GSTIN_MH, date: '2026-09-01',
+        items: [line({ qty: 1 })], sub: 100, tax: 5, total: 105 }),
+      sale({ id: 'C', doc_type: 'credit_note', invoice_no: 'CN/002', cust_gstin: GSTIN_MH,
+        linked_invoice_no: 'B/001', date: '2026-09-20',
+        items: [line({ qty: 1 })], sub: -100, tax: -5, total: -105 }),
+    ],
+    products, cfg, period: '2026-09',
+  });
+  assert.strictEqual(out.gstr1.amendments.length, 0);
+});
+
+test('a note whose linked invoice cannot be found is not an amendment', () => {
+  const out = buildReturn({
+    sales: [sale({ id: 'C', doc_type: 'credit_note', invoice_no: 'CN/003', cust_gstin: GSTIN_MH,
+      linked_invoice_no: 'NEVER-EXISTED', date: '2026-09-20',
+      items: [line({ qty: 1 })], sub: -100, tax: -5, total: -105 })],
+    products, cfg, period: '2026-09',
+  });
+  assert.strictEqual(out.gstr1.amendments.length, 0);
 });

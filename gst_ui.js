@@ -1024,6 +1024,9 @@ function gstExportExcel(){
   add('HSN', [['HSN/SAC','Description','UQC','Qty','Rate','Taxable','IGST','CGST','SGST','Cess','B2B','B2C'],
     ...g.hsn.rows.map((r) => [r.hsnSac, r.description, r.uqc, r.qtyTotal, r.rate, r.taxablePaise/100, r.igstPaise/100, r.cgstPaise/100, r.sgstPaise/100, r.cessPaise/100, r.b2bTaxablePaise/100, r.b2cTaxablePaise/100])]);
 
+  add('Amendments', [['Note / Invoice','Date','Original period','Original invoice','Reason'],
+    ...(g.amendments || []).map((a) => [a.invoiceNumber, a.invoiceDate, a.originalPeriod, a.originalInvoiceNumber, a.reason || ''])]);
+
   add('Docs Issued', [['Document Type','Series','From','To','Issued','Cancelled','Cancelled Numbers','Taxable','Tax'],
     ...g.docs_issued.map((s) => [s.docTypeLabel, s.series, s.fromNumber, s.toNumber, s.totalIssued, s.totalCancelled, (s.cancelledNumbers||[]).join(', '), s.netTaxablePaise/100, s.netTaxPaise/100])]);
 
