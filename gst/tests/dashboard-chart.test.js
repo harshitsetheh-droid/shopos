@@ -439,3 +439,74 @@ test('static: both a day and a week control are offered', () => {
     assert.match(b, new RegExp(id), `missing the ${id} control`);
   }
 });
+
+// ── stat cards ───────────────────────────────────────────────────────────────
+// A five-figure total needs roughly twice the width of a stat card at its display
+// size, and was being cut off mid-number: the dashboard read as a truncated figure
+// rather than a large one. Only visible once the numbers got big, which is why a
+// screenshot caught it and the arithmetic tests did not.
+
+function runFmt() {
+  const sb = { console };
+  const c = vm.createContext(sb);
+  // fmtCompactRs falls through to fmt for amounts under ten thousand, so both
+  // have to be in scope or the small-number cases throw instead of asserting.
+  vm.runInContext(`${extract('fmt')}\n${extract('fmtCompactRs')}`, c);
+  return c.fmtCompactRs;
+}
+
+test('compact amounts: small numbers keep their exact paise', () => {
+  const f = runFmt();
+  assert.strictEqual(f(0), '0.00');
+  assert.strictEqual(f(1234.5), '1234.50');
+  assert.strictEqual(f(9999.99), '9999.99');
+});
+
+test('compact amounts: thousands, lakhs and crores', () => {
+  const f = runFmt();
+  assert.strictEqual(f(10000), '10.0K');
+  assert.strictEqual(f(47189), '47.2K');
+  assert.strictEqual(f(228750.82), '2.29L');
+  assert.strictEqual(f(12345678), '1.23Cr');
+});
+
+test('compact amounts: the label carries no space, so it cannot wrap', () => {
+  const f = runFmt();
+  for (const v of [47189, 228750.82, 12345678, -228750.82]) {
+    assert.ok(!/\s/.test(f(v)), `"${f(v)}" contains a space and can break onto two lines`);
+  }
+});
+
+test('compact amounts: negatives keep their sign', () => {
+  const f = runFmt();
+  assert.strictEqual(f(-228750.82), '-2.29L');
+  assert.ok(f(-500).startsWith('-'));
+});
+
+test('compact amounts: never longer than the full figure it replaces', () => {
+  const f = runFmt();
+  for (const v of [0, 99, 1234.5, 10000, 47189, 228750.82, 12345678, 99999999]) {
+    assert.ok(f(v).length <= new String(Number(v).toFixed(2)).length,
+      `${v}: "${f(v)}" is longer than the raw amount`);
+  }
+});
+
+test('static: stat values must not wrap, and must be fitted to their card', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'shopOS_style.css'), 'utf8');
+  assert.match(css, /\.stat-value\{[^}]*white-space:nowrap/,
+    'a wrapping stat value made one card taller than its neighbours');
+  assert.match(src, /function fitStatValues\(\)/,
+    'the fitter is what keeps an oversized amount from being clipped');
+  assert.match(src, /fitStatValues\(\);\s*\n\s*renderWeekChart\(\);/,
+    'the fitter must run right after the cards are written');
+});
+
+test('static: every money card keeps its exact amount reachable', () => {
+  const b = src.slice(src.indexOf("getElementById('statsRow')").innerHTML);
+  const money = b.match(/class="stat-value[^"]*"[^>]*>[^<]*</g) || [];
+  const compact = money.filter((m) => /fmtCompactRs/.test(m));
+  assert.ok(compact.length >= 5, `expected 5 compact money cards, found ${compact.length}`);
+  for (const m of compact) {
+    assert.match(m, /data-exact=/, `card without an exact-amount tooltip: ${m}`);
+  }
+});

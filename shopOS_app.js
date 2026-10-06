@@ -484,6 +484,46 @@ function calcTotalStock(b,p,ppb){
 }
 function fmt(n){ return Number(n||0).toFixed(2); }
 
+/**
+ * A stat card has room for about eight characters at its display size. An eleven
+ * character amount like 228750.82 needs nearly twice that and was being clipped
+ * mid-number, so the dashboard read as a truncated figure rather than a large one.
+ * Indian shops read lakh and thousand, so the headline number is compact and the
+ * exact amount stays on the card's tooltip.
+ */
+function fmtCompactRs(n){
+  const v = Number(n) || 0;
+  const a = Math.abs(v);
+  if (a >= 1e7) return (v/1e7).toFixed(2) + 'Cr';
+  if (a >= 1e5) return (v/1e5).toFixed(2) + 'L';
+  if (a >= 1e4) return (v/1e3).toFixed(1) + 'K';
+  return fmt(v);
+}
+
+/**
+ * Shrink any stat value that overflows its card, so no amount can ever be
+ * silently cut off. Runs after the cards are written, which means it also copes
+ * with a length nobody anticipated.
+ */
+function fitStatValues(){
+  const wrap = document.getElementById('statsRow');
+  if (!wrap) return;
+  wrap.querySelectorAll('.stat-value').forEach(el => {
+    el.style.fontSize = '';                       // start from the stylesheet
+    if (!el.clientWidth) return;
+    let size = 32;
+    el.style.fontSize = size + 'px';
+    let guard = 0;
+    while (el.scrollWidth > el.clientWidth + 1 && size > 15 && guard++ < 30){
+      size -= 1;
+      el.style.fontSize = size + 'px';
+    }
+    // Keep the exact amount reachable even when the face is shrunk.
+    const exact = el.getAttribute('data-exact');
+    if (exact && !el.getAttribute('title')) el.setAttribute('title', exact);
+  });
+}
+
 // Smart rounding: ceil if decimal >= .20, floor if < .20
 function smartRound(n){
   const floored = Math.floor(n);
@@ -6368,17 +6408,17 @@ function renderDashboard(){
   document.getElementById('statsRow').innerHTML=`
     <div class="stat-card yellow interactive-card" onclick="showDashDetail('today')" title="Click to see today's sales">
       <div class="stat-label">Today's Revenue <span style="font-size:9px;opacity:.6;">↗ click</span></div>
-      <div class="stat-value yellow">₹${fmt(todayRev)}</div>
+      <div class="stat-value yellow" data-exact="₹${fmt(todayRev)}">₹${fmtCompactRs(todayRev)}</div>
       <div class="stat-sub">${todaySales.length} transactions</div>
     </div>
     <div class="stat-card blue interactive-card" onclick="showDashDetail('all')" title="Click to see all sales">
       <div class="stat-label">Total Revenue <span style="font-size:9px;opacity:.6;">↗ click</span></div>
-      <div class="stat-value blue">₹${fmt(totalRev)}</div>
+      <div class="stat-value blue" data-exact="₹${fmt(totalRev)}">₹${fmtCompactRs(totalRev)}</div>
       <div class="stat-sub">${financialSales.length} all-time</div>
     </div>
     <div class="stat-card green" title="Today's profit minus expenses">
       <div class="stat-label">Today's Profit <span style="font-size:9px;opacity:.6;">↗</span></div>
-      <div class="stat-value green">₹${fmt(netTodayProfit)}</div>
+      <div class="stat-value green" data-exact="₹${fmt(netTodayProfit)}">₹${fmtCompactRs(netTodayProfit)}</div>
       <div class="stat-sub">${todaySales.length} transaction${todaySales.length!==1?'s':''}${todayExpenses>0?' · expenses: -₹'+fmt(todayExpenses):''}</div>
     </div>
     <div class="stat-card green interactive-card" onclick="navigate('inventory')" title="Click to manage products">
@@ -6388,7 +6428,7 @@ function renderDashboard(){
     </div>
     <div class="stat-card green" title="Total Profit minus all expenses">
       <div class="stat-label">Total Profit <span style="font-size:9px;opacity:.6;">↗</span></div>
-      <div class="stat-value green">₹${fmt(netTotalProfit)}</div>
+      <div class="stat-value green" data-exact="₹${fmt(netTotalProfit)}">₹${fmtCompactRs(netTotalProfit)}</div>
       <div class="stat-sub">All time · ${totalRev>0?'margin '+(netTotalProfit/totalRev*100).toFixed(1)+'%':''}</div>
     </div>
     <div class="stat-card red interactive-card" onclick="goToLowStock()" title="Click to see low stock items">
@@ -6403,9 +6443,10 @@ function renderDashboard(){
     </div>
     <div class="stat-card orange interactive-card" onclick="navigate('udhaar')" title="Click to see udhaar records">
       <div class="stat-label">Pending Udhaar <span style="font-size:9px;opacity:.6;">↗ click</span></div>
-      <div class="stat-value orange">₹${fmt(pendingUdhaarAmt)}</div>
+      <div class="stat-value orange" data-exact="₹${fmt(pendingUdhaarAmt)}">₹${fmtCompactRs(pendingUdhaarAmt)}</div>
       <div class="stat-sub">${pendingUdhaarCount} customer${pendingUdhaarCount!==1?'s':''}</div>
     </div>`;
+  fitStatValues();
   renderWeekChart();
   bindWeekChartSwipe();
   const low=products.filter(p=>p.stock<=p.low);
@@ -8970,12 +9011,16 @@ document.addEventListener('keydown', function(e){
 // ── INIT ──────────────────────────────────────────────────────────────────────
 // Save data on tab/browser close
 window.addEventListener('beforeunload', function(){
+  // Browsers routinely abort a keepalive request while the page is going away.
+  // A rejected fetch is asynchronous, so the try/catch never saw it and every
+  // single page close logged an unhandled "TypeError: Failed to fetch". The
+  // autosave is what actually protects the data; this is only a last chance.
   try {
     fetch(API_BASE+'/save', {
       method:'POST', headers:_authHeaders(),
       body:JSON.stringify({categories,products,sales,inventoryHistory,udhaarRecords,advanceOrders,notes,customerLedgers,purchasePriceLog,supplierTransportLog,expenses}),
       keepalive:true
-    });
+    }).catch(function(){});
   } catch(e){}
 });
 

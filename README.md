@@ -312,6 +312,28 @@ leftover was announced in a toast that vanished on reload, with nothing recorded
 its bills down to the last one, so settling three bills destroyed the first two
 and the customer's `totalBill` silently shrank. Settled bills are history.
 
+## Demo data
+
+`devtools/demo-data.js` seeds a plausible small shop — five weeks of bills, busier
+weekends, a couple of dead days, a mix of GST-on tax invoices and plain bills of
+supply, and some part-paid bills — so the dashboard chart, reports and reminders
+can be judged with something on screen. It is not referenced from
+`shopOS_index.html`; load it deliberately from the browser console:
+
+```js
+fetch('/devtools/demo-data.js').then(r => r.text()).then(eval)
+await seedDemoData()      // or seedDemoData({ weeks: 8 })
+clearDemoData()           // removes everything it created
+```
+
+Everything it writes is tagged (`DEMO ` name prefix, `demo: true` on the row), so
+`clearDemoData()` takes all of it back out without touching real records. The
+figures are generated from a fixed seed, so the same shop comes back every time and
+a real regression cannot be mistaken for a different random draw.
+
+Do not run this against a shop you intend to file from: it is indistinguishable
+from real sales in the reports once loaded.
+
 > Verify the treatment of tax on advances and receipts with your CA against the
 > notifications current at the time of filing. The rules around tax on advance
 > payments differ for goods and for services, and the position on advances has

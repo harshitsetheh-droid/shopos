@@ -277,6 +277,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-mono);font-si
 .stat-value.orange{color:#ffa726;}
 .stat-label{font-size:14px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
 .stat-value{font-family:var(--font-head);font-size:32px;font-weight:800;}
+/* Never wrap. A large amount used to break onto a second line, which made one
+   card taller than its neighbours and broke the grid; fitStatValues() then
+   shrinks the face until the whole figure sits on one line. */
+.stat-value{white-space:nowrap;}
 .stat-value.yellow{color:var(--accent);}
 .stat-value.blue{color:var(--accent2);}
 .stat-value.green{color:var(--green);}
