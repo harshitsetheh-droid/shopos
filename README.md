@@ -332,7 +332,22 @@ figures are generated from a fixed seed, so the same shop comes back every time 
 a real regression cannot be mistaken for a different random draw.
 
 Do not run this against a shop you intend to file from: it is indistinguishable
-from real sales in the reports once loaded.
+from real sales in the reports once loaded. A throwaway `demo_shop` account
+(`demo_shop` / `Demo@12345`) exists locally for exactly this purpose.
+
+The demo data is GST-valid, so the GST screen opens clean rather than looking
+broken:
+
+- every document carries an invoice number, plain bills included — a blank one
+  makes the validator fall back to the sale id, which is far too long to be legal;
+- invoice numbers run continuously per series per month (`DM-202609-014`,
+  `BO-202609-038`), so there are no gaps or duplicates;
+- plain bills carry unrated goods and tax invoices carry rated ones, because a
+  GST-rated product declared nil is a real contradiction;
+- non-taxable documents record why they are not a taxable supply.
+
+Verified across three periods: zero blockers, zero warnings, GSTR-1 and GSTR-3B
+tie out, and export is permitted.
 
 > Verify the treatment of tax on advances and receipts with your CA against the
 > notifications current at the time of filing. The rules around tax on advance

@@ -42,12 +42,26 @@
     'Arjun', 'Farida', 'Vikram', 'Anita', 'Rohit', 'Sneha', 'Manoj', 'Kiran'];
   const LAST = ['Sharma', 'Patel', 'Khan', 'Nair', 'Yadav', 'Joshi', 'Reddy', 'Iyer'];
 
-  // paise per unit, and the GST rate that applies when the document is GST-on
+  // Required on every non-taxable document, otherwise the return builder blocks it.
+  const NIL_REASON = 'Unregistered walk-in customer - not a taxable supply';
+
+  // Paise per unit, plus the GST rate the product master carries.
+//
+// Split deliberately into unrated loose goods and rated packaged goods, because
+// that is how a small shop actually bills: a customer paying cash for rice and
+// onions is not a taxable supply, while a branded oil tin or a soap pack goes on a
+// tax invoice. Mixing them - putting a 12% oil on a plain bill - is a genuine GST
+// contradiction, and the validator rightly blocks it, which would leave the demo
+// looking broken rather than working.
   const CATALOG = [
     { name: 'Rice 5kg', price: 10000, cost: 6000, gst: 0, hsn: '1006' },
+    { name: 'Sugar 1kg', price: 4500, cost: 3900, gst: 0, hsn: '1701' },
+    { name: 'Toor Dal 1kg', price: 16500, cost: 14000, gst: 0, hsn: '0713' },
+    { name: 'Salt 1kg', price: 1400, cost: 1100, gst: 0, hsn: '2501' },
+    { name: 'Potatoes 2kg', price: 5000, cost: 3800, gst: 0, hsn: '0701' },
+    { name: 'Onions 1kg', price: 4000, cost: 3000, gst: 0, hsn: '0702' },
     { name: 'Wheat Atta 10kg', price: 28000, cost: 22000, gst: 5, hsn: '1101' },
     { name: 'Sunflower Oil 1L', price: 14500, cost: 12500, gst: 12, hsn: '1512' },
-    { name: 'Sugar 1kg', price: 4500, cost: 3900, gst: 0, hsn: '1701' },
     { name: 'Tea Powder 250g', price: 32000, cost: 27500, gst: 5, hsn: '0902' },
     { name: 'Soap Pack of 4', price: 12000, cost: 9000, gst: 18, hsn: '3401' },
     { name: 'Biscuits 200g', price: 6000, cost: 4800, gst: 18, hsn: '1905' },
@@ -93,22 +107,37 @@
       made.push(p);
     }
     if (made.length && typeof products !== 'undefined') products.push(...made);
-    return made;
+    // Return EVERY demo product, not just the ones created this time. Seeding is
+    // re-runnable, and on a second run nothing is created because the names
+    // already exist - returning only `made` handed the caller an empty list and
+    // every bill came out with no items.
+    if (typeof products === 'undefined') return made;
+    return products.filter((p) => p.demo || /^DEMO /.test(p.name || ''));
   }
 
   /** One bill. Everything is accumulated in paise and rounded once, at the end. */
   function buildSale(date, index, demoProducts, opts) {
     const o = opts || {};
+    // A plain bill carries unrated goods, a tax invoice carries rated ones. Never the
+    // other way round: a GST-rated product declared nil is a real contradiction
+    // and the validator blocks it, so the demo must bill the way a shop does.
+    const wanted = o.gstOn
+      ? demoProducts.filter((p) => (p.gst || 0) > 0)
+      : demoProducts.filter((p) => !(p.gst > 0));
+    const pool = wanted.length ? wanted : demoProducts;
+    const gstOn = !!(o.gstOn && wanted.length);
+
     const lineCount = rint(1, 4);
     const chosen = [];
     for (let i = 0; i < lineCount; i++) {
-      const p = pick(demoProducts);
-      if (!chosen.some((c) => c.p.id === p.id)) chosen.push({ p, qty: rint(1, 6) });
+      const p = pick(pool);
+      if (p && !chosen.some((c) => c.p.id === p.id)) chosen.push({ p, qty: rint(1, 6) });
     }
+    if (!chosen.length) return null;
 
     const lines = chosen.map(({ p, qty }) => {
       const base = Math.round(p.price * 100) * qty;          // paise
-      const rate = o.gstOn ? (p.gst || 0) : 0;
+      const rate = gstOn ? (p.gst || 0) : 0;
       const tax = Math.round(base * rate) / 100;
       const intra = rate > 0;
       return {
@@ -125,6 +154,10 @@
         hsn: p.hsn,
         uqc: 'NOS',
         purchasePrice: p.purchasePrice,
+        // A non-taxable line has to say why it is non-taxable, otherwise the
+        // return builder blocks it with NONGST_NO_REASON.
+        isNil: !gstOn,
+        nilRatedReason: NIL_REASON,
         taxPaise: tax,
         basePaise: base,
       };
@@ -156,15 +189,22 @@
       amtPaid: toR(amtPaidPaise),
       pending: toR(totalPaise - amtPaidPaise),
       date: `${dateKey(date)}T${pad(rint(9, 20))}:${pad(rint(0, 59))}:00`,
-      taxApplied: !!o.gstOn,
+      taxApplied: gstOn,
       payType: amtPaidPaise >= totalPaise ? 'paid' : 'partial',
       change: 0,
       udhaarIncluded: false,
       extraUdhaarAmount: 0,
       hidden: false,
-      docType: o.gstOn ? 'tax_invoice' : 'bill_of_supply',
-      invoiceNo: o.gstOn ? 'DEMO/' + dateKey(date).replace(/-/g, '') + '/' + String(index).padStart(3, '0') : '',
-      invoiceSeries: o.gstOn ? 'DEMO' : '',
+      docType: gstOn ? 'tax_invoice' : 'bill_of_supply',
+      // Every document needs a number, plain bills included: when one is blank the
+      // validator falls back to the sale id, which is far too long to be a legal
+      // invoice number. Capped at 16 characters, continuous per series per month:
+      // DM-2608-001 / BO-2608-001.
+      invoiceNo: (o.series || (gstOn ? 'DM' : 'BO'))
+        + '-' + dateKey(date).slice(0, 7).replace('-', '')
+        + '-' + String(o.serial || index + 1).padStart(3, '0'),
+      invoiceSeries: o.series || (gstOn ? 'DM' : 'BO'),
+      nilRatedReason: gstOn ? '' : NIL_REASON,
       custGstin: '',
       placeOfSupply: o.stateCode || '27',
       supplyType: 'domestic',
@@ -196,6 +236,12 @@
     const deadDays = new Set([11, totalDays - 3]);
 
     const made = [];
+    // Invoice numbers run continuously per series per MONTH, the way a real GST
+    // series does. Restarting them each day meant a closed day left a hole in the
+    // month's numbering (SERIES_GAP); restarting them outside the day loop would
+    // instead repeat every number (DUPLICATE_INVOICE_NO). Declared here, spanning
+    // the whole range, so a serial is issued once per series per month.
+    const serials = new Map();
     for (let back = totalDays - 1; back >= 0; back--) {
       const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - back);
       if (deadDays.has(back)) continue;
@@ -206,13 +252,21 @@
 
       for (let i = 0; i < bills; i++) {
         const cust = pick(FIRST) + ' ' + pick(LAST);
-        made.push(buildSale(d, i, demoProducts, {
-          // GST is opt-in per document, so most bills are plain.
-          gstOn: rnd() < 0.18,
+        // GST is opt-in per document, so most bills are plain.
+        const gstOn = rnd() < 0.22;
+        const series = gstOn ? 'DM' : 'BO';
+        const key = series + '-' + dateKey(d).slice(0, 7);
+        const n = (serials.get(key) || 0) + 1;
+        serials.set(key, n);
+        const sale = buildSale(d, i, demoProducts, {
+          gstOn,
+          series,
+          serial: n,
           partPaid: rnd() < 0.10,
           customer: cust,
           stateCode,
-        }));
+        });
+        if (sale) made.push(sale);
       }
     }
 
