@@ -6602,21 +6602,28 @@ function renderWeekChart(){
   // one bucket per day in the window, carrying enough to answer any question in
   // the tooltip without re-scanning sales for each bar
   const buckets = WEEK_DAYS.map(() => ({ revenue:0, gst:0, profit:0, bills:0, items:0, list:[] }));
-  sales.forEach(s => {
+  // Sales the user removed from the financial records get no bar either. The stat
+  // cards filter them out, so counting them here made the chart read higher than
+  // the revenue figure printed directly above it.
+  sales.filter(inFinancials).forEach(s => {
     const d = new Date(s.date);
     if (d < start || d >= endExclusive) return;
     const i = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 86400000);
     if (i < 0 || i > 6) return;
     const b = buckets[i];
-    b.revenue += _dashUdhaarMode ? (Number(s.total)||0) : (Number(s.amtPaid) || Number(s.total) || 0);
     b.gst     += Number(s.tax) || 0;
     b.bills   += 1;
     b.items   += (s.items||[]).reduce((a,it) => a + (Number(it.qty)||0), 0);
     b.list.push(s);
   });
-  // profit comes from calcProfit so the tooltip and the stat cards can never
-  // disagree — including the discount handling and the out-of-financials flag
-  buckets.forEach(b => { b.profit = calcProfit(b.list); });
+  // Revenue and profit BOTH come from the shared helpers the stat cards use, so a
+  // bar can never disagree with the number above it. Doing it inline instead was
+  // the bug: `amtPaid || total` treats a fully-credit sale (amtPaid 0) as if the
+  // whole amount had been collected, even with udhaar mode switched off.
+  buckets.forEach(b => {
+    b.revenue = calcRevenue(b.list, _dashUdhaarMode);
+    b.profit  = calcProfit(b.list);
+  });
 
   const maxVal = Math.max(...buckets.map(b => b.revenue), 1);
   const totalRevenue = buckets.reduce((a,b) => a + b.revenue, 0);
