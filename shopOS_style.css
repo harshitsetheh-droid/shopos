@@ -580,6 +580,12 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
   border:1px solid var(--border);background:transparent;color:var(--text);
   font-size:15px;cursor:pointer;transition:background .15s,border-color .15s;
 }
+/* labelled variant: the week chart steps by a day OR by a week, so the two
+   granularities have to be readable rather than two identical chevrons. */
+.chart-nav.wide{
+  width:auto;min-width:24px;height:22px;padding:0 8px;font-size:10.5px;font-weight:600;
+  letter-spacing:.2px;white-space:nowrap;
+}
 .chart-nav:hover:not(:disabled){background:var(--surface2);border-color:var(--accent);color:var(--accent);}
 .chart-nav:disabled{opacity:.28;cursor:default;}
 .bar-animated{
@@ -594,7 +600,18 @@ label{font-size:14px;color:var(--muted);display:block;margin-bottom:2px;line-hei
   to{opacity:1;}
 }
 .bar-label{font-size:11px;color:var(--muted);position:relative;z-index:1;}
+/* the day-of-month under the weekday, so a bar can be tied to a real date */
+.bar-label .bar-date{
+  display:block;font-size:9px;opacity:.65;font-weight:400;line-height:1.2;margin-top:-2px;
+}
+/* Days after today have not happened yet: keep the column, drop the emphasis, so
+   an empty bar reads as "no data yet" rather than "you sold nothing". */
+.bar-col.future .bar-label,
+.bar-col.future .bar-label .bar-date{opacity:.4;}
+.bar-empty.future{background:transparent;border-top:1px dashed var(--border);height:0;padding-top:2px;}
+.bar-col.future:hover .bar-empty.future{border-top-color:var(--accent);}
 .bar-col:hover .bar-label{color:var(--text);font-weight:600;}
+.bar-col.future:hover .bar-label{font-weight:400;}
 
 /* rich hover card: header line, then one coloured label + value per row */
 .bar-tooltip{

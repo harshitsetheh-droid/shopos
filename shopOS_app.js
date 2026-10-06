@@ -1398,11 +1398,11 @@ function notify(msg,type='success'){
 
 // ── NAVIGATION ──────────────────────────────────────────────────────────────
 function navigate(page){
-  // Coming back to the dashboard always shows the latest 7 days, never wherever
-  // the chart happened to be swiped to — otherwise you re-enter and silently read
-  // a month-old window as if it were current.
-  if(page==='dashboard' && _weekChartOffset!==0){
-    _weekChartOffset=0;
+  // Coming back to the dashboard always shows the live week, never wherever
+  // the chart happened to be swiped or stepped to — otherwise you re-enter and
+  // silently read a month-old window as if it were current.
+  if(page==='dashboard' && _weekChartStartBack!==0){
+    _weekChartStartBack=0;
   }
   // Clear inventory search when navigating away from inventory
   if(page!=='inventory'){
@@ -6535,37 +6535,70 @@ function showDashDetail(type){
 
 // ── SALES HISTORY ─────────────────────────────────────────────────────────────
 // ── Sales This Week ────────────────────────────────────────────────────────────
-// Seven days ending _weekChartOffset days before today. Swipe right (or click the
-// arrows) to walk backwards, up to WEEK_LOOKBACK_MAX days.
+// The chart always shows seven consecutive days. Where that week sits is one
+// number: how many days back from the Monday of the current week the window
+// starts. 0 is the live week, Monday first.
 //
-// It used to add up every sale ever made and group by weekday, so a card titled
-// "Sales This Week" was showing all-time totals — a bar that could only grow and
-// never meant the week you were looking at.
+// One counter, not two. An earlier attempt kept a week offset plus a "day peel",
+// which fell apart at the seam: peeling six days off Monday lands on a Tuesday,
+// so the seventh step had to jump a whole week to stay contiguous.
+//
+// It used to walk seven days back from today and then label THOSE seven columns
+// Mon..Sun in order. With today being a Tuesday the first column was a Wednesday
+// wearing a "Mon" label, so every bar sat under the wrong day name. The weekday
+// name now comes from the date itself, which is correct at every window position.
 const WEEK_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const WEEK_DAYS_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-// How far back the swipe goes. The window is 7 days wide, so this covers roughly
-// a month of history from the oldest day you can reach to today.
-const WEEK_LOOKBACK_MAX = 23;
-let _weekChartOffset = 0;
+// How far back you can walk, in days. About four weeks of history.
+const WEEK_LOOKBACK_MAX = 28;
+let _weekChartStartBack = 0;
 
-function weekWindowEnd(){
+/** Monday of the week we are currently in (local midnight). */
+function weekMonday(){
   const n = new Date();
-  const d = new Date(n.getFullYear(), n.getMonth(), n.getDate() - _weekChartOffset);
-  return d;
+  const d = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
 }
+/** First day of the window on screen. */
 function weekWindowStart(){
-  const e = weekWindowEnd();
-  return new Date(e.getFullYear(), e.getMonth(), e.getDate() - 6);
+  const m = weekMonday();
+  return new Date(m.getFullYear(), m.getMonth(), m.getDate() - _weekChartStartBack);
 }
+/** Six days after the window start. */
+function weekWindowEnd(){
+  const s = weekWindowStart();
+  return new Date(s.getFullYear(), s.getMonth(), s.getDate() + 6);
+}
+/**
+ * Whole days from `a` to `b`, both midnight-aligned. Comparing the UTC calendar
+ * fields rather than the raw timestamps stops a DST shift from quietly moving a
+ * sale into the neighbouring day's bar.
+ */
+function daysBetween(a, b){
+  return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate())
+    - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
+}
+/** step > 0 walks backwards a whole week, which keeps Monday first. */
 function shiftWeekChart(step){
-  const next = _weekChartOffset + step;          // step +1 = one day further back
+  stepWeekChartWindow(step);
+}
+/** step > 0 walks backwards a single day, scrolling the window. */
+function shiftWeekChartDay(step){
+  stepWeekChartWindow(step);
+}
+function stepWeekChartWindow(delta){
+  const next = _weekChartStartBack + delta;
   const clamped = Math.max(0, Math.min(WEEK_LOOKBACK_MAX, next));
-  if (clamped === _weekChartOffset) return;
-  _weekChartOffset = clamped;
+  if (clamped === _weekChartStartBack) return;
+  _weekChartStartBack = clamped;
   renderWeekChart();
 }
-
-/** Drag/swipe across the chart to walk the 7-day window. Bound once, on load. */
+/** Back to the live week, Monday first. */
+function resetWeekChart(){
+  _weekChartStartBack = 0;
+  renderWeekChart();
+}
+/** Drag/swipe across the chart to step the week. Bound once, on load. */
 let _weekSwipeBound = false;
 function bindWeekChartSwipe(){
   if (_weekSwipeBound) return;
@@ -6596,19 +6629,19 @@ function renderWeekChart(){
   if (!el) return;
   const start = weekWindowStart();
   const end = weekWindowEnd();
-  const endExclusive = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
   const todayKey = _localDateStr(new Date());
 
-  // one bucket per day in the window, carrying enough to answer any question in
-  // the tooltip without re-scanning sales for each bar
+  // one bucket per day of the week, carrying enough to answer any question in the
+  // tooltip without re-scanning sales for each bar
   const buckets = WEEK_DAYS.map(() => ({ revenue:0, gst:0, profit:0, bills:0, items:0, list:[] }));
   // Sales the user removed from the financial records get no bar either. The stat
   // cards filter them out, so counting them here made the chart read higher than
   // the revenue figure printed directly above it.
   sales.filter(inFinancials).forEach(s => {
     const d = new Date(s.date);
-    if (d < start || d >= endExclusive) return;
-    const i = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - start) / 86400000);
+    if (isNaN(d)) return;
+    // Index straight off the week's Monday, so column N is always that weekday.
+    const i = daysBetween(start, new Date(d.getFullYear(), d.getMonth(), d.getDate()));
     if (i < 0 || i > 6) return;
     const b = buckets[i];
     b.gst     += Number(s.tax) || 0;
@@ -6630,59 +6663,77 @@ function renderWeekChart(){
   const totalBills = buckets.reduce((a,b) => a + b.bills, 0);
   const totalGst = buckets.reduce((a,b) => a + b.gst, 0);
   const totalProfit = buckets.reduce((a,b) => a + b.profit, 0);
-  const isCurrent = _weekChartOffset === 0;
+  const isCurrent = _weekChartStartBack === 0;
 
-  el.innerHTML = WEEK_DAYS.map((label, i) => {
+  el.innerHTML = WEEK_DAYS.map((_unused, i) => {
     const b = buckets[i];
     const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-    const dateLabel = date.toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric' });
-    const isToday = _localDateStr(date) === todayKey;
-    const head = `${WEEK_DAYS_FULL[i]}, ${dateLabel}${isToday ? ' · Today' : ''}`;
+    const key = _localDateStr(date);
+    // Name the column after the day the date actually falls on. Indexing
+    // WEEK_DAYS by position is exactly the original bug: today being a Tuesday,
+    // column 0 was a Wednesday sitting under a "Mon" label.
+    const wd = (date.getDay() + 6) % 7;          // 0 = Monday
+    const label = WEEK_DAYS[wd];
+    const isToday = key === todayKey;
+    // Days after today keep their column but stay empty: those sales have not
+    // happened yet, and an empty bar would read as "you sold nothing that day".
+    const isFuture = key > todayKey;
+    const fullDate = date.toLocaleString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+    const head = `${WEEK_DAYS_FULL[wd]}, ${fullDate}`
+      + (isToday ? ' &middot; Today' : '') + (isFuture ? ' &middot; not yet' : '');
 
     const row = (k, v, cls) => `<div class="bar-tip-row"><span class="k${cls||''}">${k}</span><span class="v">${v}</span></div>`;
+    const body = isFuture
+      ? `<div class="bar-tip-row"><span class="k">Upcoming</span></div>`
+      : (b.bills
+        ? row('Revenue', '&#8377;'+fmt(b.revenue))
+        + row('Profit', '&#8377;'+fmt(b.profit), ' k4')
+        + (b.gst ? row('GST collected', '&#8377;'+fmt(b.gst), ' k2') : '')
+        + row('Bills', b.bills, ' k3')
+        + row('Items sold', b.items)
+        : `<div class="bar-tip-row"><span class="k">No sales</span></div>`);
     const tip = `<div class="bar-tooltip${i===0?' tip-left':(i===6?' tip-right':'')}">
-        <div class="bar-tip-head">${head}</div>
-        ${b.bills
-          ? row('Revenue', '₹'+fmt(b.revenue))
-          + row('Profit', '₹'+fmt(b.profit), ' k4')
-          + (b.gst ? row('GST collected', '₹'+fmt(b.gst), ' k2') : '')
-          + row('Bills', b.bills, ' k3')
-          + row('Items sold', b.items)
-          : `<div class="bar-tip-row"><span class="k">No sales</span></div>`}
+        <div class="bar-tip-head">${head}</div>${body}
       </div>`;
 
-    const hPct = b.revenue > 0 ? Math.max((b.revenue / maxVal) * 100, 3) : 0;
-    return `<div class="bar-col" data-date="${_localDateStr(date)}" onclick="showDayDetail('${_localDateStr(date)}')" style="cursor:pointer;">
-      <div class="bar-wrap">
-        ${b.revenue>0
-          ? `<div class="bar-animated" style="height:${hPct}%;" data-val="${b.revenue}">${tip}</div>`
-          // a faint stub, so a day with no sales still reads as one of the seven
-          : `<div class="bar-empty" data-val="0">${tip}</div>`}
-      </div>
-      <div class="bar-label" style="${isToday?'color:var(--accent);font-weight:700;':''}">${label}</div>
+    const hasBar = !isFuture && b.revenue > 0;
+    const hPct = hasBar ? Math.max((b.revenue / maxVal) * 100, 3) : 0;
+    const bar = hasBar
+      ? `<div class="bar-animated" style="height:${hPct}%;" data-val="${b.revenue}">${tip}</div>`
+      // a faint stub, so a day with no sales still reads as one of the seven
+      : `<div class="bar-empty${isFuture?' future':''}" data-val="0">${tip}</div>`;
+
+    return `<div class="bar-col${isFuture?' future':''}" data-date="${key}" onclick="showDayDetail('${key}')" style="cursor:pointer;">
+      <div class="bar-wrap">${bar}</div>
+      <div class="bar-label${isFuture?' future':''}" style="${isToday?'color:var(--accent);font-weight:700;':''}">${label}<span class="bar-date">${date.getDate()}</span></div>
     </div>`;
   }).join('');
 
-  // ── header: arrows, range, and the swipe hint ───────────────────────────
+  // ── header: step back or forward by a day, or by a whole week ──────────────
   const shortFrom = start.toLocaleString('en-IN', { day:'numeric', month:'short' });
   const shortTo = end.toLocaleString('en-IN', { day:'numeric', month:'short' });
   const title = document.getElementById('weekChartTitle');
   if (title) {
-    // A rolling 7 days ending today, not a Mon-Sun calendar week - that is what
-    // makes stepping one day at a time mean anything. So do not call it "this
-    // week": today being a Monday, the default window is the PREVIOUS seven days.
-    title.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">
-        <button class="chart-nav" id="weekPrev" ${_weekChartOffset>=WEEK_LOOKBACK_MAX?'disabled':''} title="Previous day (swipe right)">‹</button>
-        <span>${isCurrent ? 'Last 7 Days' : 'Sales'}</span>
-        <button class="chart-nav" id="weekNext" ${isCurrent?'disabled':''} title="Next day (swipe left)">›</button>
-        ${isCurrent ? '' : '<button class="chart-nav" id="weekToday" title="Back to the latest 7 days" style="width:auto;padding:0 8px;font-size:11px;">Today</button>'}
+    const atMax = _weekChartStartBack >= WEEK_LOOKBACK_MAX;
+    const atNow = _weekChartStartBack <= 0;
+    const weekBack = Math.min(WEEK_LOOKBACK_MAX, _weekChartStartBack + 7);
+    title.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <button class="chart-nav wide" id="weekPrevDay" ${atMax?'disabled':''} title="Back one day">&#8249; 1 day</button>
+        <button class="chart-nav wide" id="weekPrevWeek" ${weekBack<=_weekChartStartBack?'disabled':''} title="Back one week">&#8249; 1 week</button>
+        <span style="font-weight:600;margin:0 2px;">${shortFrom} &ndash; ${shortTo}</span>
+        <button class="chart-nav wide" id="weekNextWeek" ${atNow?'disabled':''} title="Forward one week">1 week &#8250;</button>
+        <button class="chart-nav wide" id="weekNextDay" ${atNow?'disabled':''} title="Forward one day">1 day &#8250;</button>
+        ${isCurrent ? '' : '<button class="chart-nav wide" id="weekToday" title="Back to this week">This week</button>'}
       </div>`;
-    const prev = document.getElementById('weekPrev');
-    const next = document.getElementById('weekNext');
-    const back = document.getElementById('weekToday');
-    if (prev) prev.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(1); };
-    if (next) next.onclick = (ev) => { ev.stopPropagation(); shiftWeekChart(-1); };
-    if (back) back.onclick = (ev) => { ev.stopPropagation(); _weekChartOffset = 0; renderWeekChart(); };
+    const hook = (elId, fn) => {
+      const b = document.getElementById(elId);
+      if (b) b.onclick = (ev) => { ev.stopPropagation(); fn(); };
+    };
+    hook('weekPrevDay',  () => shiftWeekChartDay(1));
+    hook('weekNextDay',  () => shiftWeekChartDay(-1));
+    hook('weekPrevWeek', () => shiftWeekChart(7));
+    hook('weekNextWeek', () => shiftWeekChart(-7));
+    hook('weekToday',    () => resetWeekChart());
   }
 
   let cap = document.getElementById('weekChartCap');
@@ -6691,12 +6742,16 @@ function renderWeekChart(){
     cap.id = 'weekChartCap';
     el.parentElement.appendChild(cap);
   }
+  const range = `<strong>${shortFrom} &ndash; ${shortTo}</strong>`;
+  // Once the day control has peeled the window off Monday it is a plain 7-day
+  // window, not a Monday-first week, and saying so stops the two looking different
+  // when they are the same numbers.
+  const align = start.getDay() === 1 ? '' : ' &middot; 7-day view';
+  const hint = '<span style="opacity:.7;">&middot; swipe, or step back a day / a week</span>';
   cap.innerHTML = totalBills
-    ? `<strong>${shortFrom} – ${shortTo}</strong> · ${totalBills} bill${totalBills!==1?'s':''} · ₹${fmt(totalRevenue)} revenue
-       · ₹${fmt(totalProfit)} profit · ₹${fmt(totalGst)} GST
-       <span style="opacity:.7;">· swipe or use ‹ › to go back</span>`
-    : `<strong>${shortFrom} – ${shortTo}</strong> · no sales in these 7 days
-       <span style="opacity:.7;">· swipe or use ‹ › to go back</span>`;
+    ? `${range} &middot; ${totalBills} bill${totalBills!==1?'s':''} &middot; &#8377;${fmt(totalRevenue)} revenue
+       &middot; &#8377;${fmt(totalProfit)} profit &middot; &#8377;${fmt(totalGst)} GST ${align}${hint}`
+    : `${range} &middot; no sales in these 7 days ${align}${hint}`;
 }
 
 function showDayDetail(dateStr){

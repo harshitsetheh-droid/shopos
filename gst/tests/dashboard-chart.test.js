@@ -49,12 +49,16 @@ function extract(name) {
 
 const NEEDED = [
   'fmt', 'inFinancials', 'calcRevenue', 'calcProfit', 'getPurchasePriceAtDate',
-  'weekWindowStart', 'weekWindowEnd', '_localDateStr', 'renderWeekChart',
+  'weekMonday', 'weekWindowStart', 'weekWindowEnd', 'daysBetween',
+  'shiftWeekChart', 'shiftWeekChartDay', 'stepWeekChartWindow', 'resetWeekChart',
+  '_localDateStr', 'renderWeekChart',
   'WEEK_DAYS', 'WEEK_DAYS_FULL', 'WEEK_LOOKBACK_MAX',
 ];
 
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 /** Run renderWeekChart over the given sales and return what the user would see. */
-function renderChart(sales, udhaarMode) {
+function renderChart(sales, udhaarMode, startBack = 0) {
   const els = {};
   const chart = {
     id: 'weekChart',
@@ -70,8 +74,7 @@ function renderChart(sales, udhaarMode) {
     console,
     sales,
     _dashUdhaarMode: !!udhaarMode,
-    _weekChartOffset: 0,
-    WEEK_LOOKBACK_MAX: 23,
+    _weekChartStartBack: startBack,
     notify() {},
     document: {
       getElementById: (id) => (id === 'weekChartCap' ? cap : els[id] || null),
@@ -89,19 +92,43 @@ function renderChart(sales, udhaarMode) {
     barsTotal += Number(m[1]);
     barCount++;
   }
-  let billCount = 0;
-  for (const m of chart.innerHTML.matchAll(/class="bar-empty"[^>]*data-val="0"/g)) billCount++;
+  let emptyCount = 0;
+  for (const m of chart.innerHTML.matchAll(/class="bar-empty[^"]*"[^>]*data-val="0"/g)) emptyCount++;
 
-  const capText = cap.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  // Read the rendered columns back out, exactly as the user sees them.
+  const cols = [];
+  const colRe = /<div class="bar-col([^"]*)" data-date="([^"]+)"[\s\S]*?<div class="bar-label[^"]*"[^>]*>([A-Za-z]+)<span class="bar-date">(\d+)<\/span>/g;
+  for (const m of chart.innerHTML.matchAll(colRe)) {
+    cols.push({
+      classes: m[1].trim(),
+      date: m[2].slice(0, 10),
+      weekday: m[3],
+      dayNum: Number(m[4]),
+    });
+  }
+
+  const capText = decodeEntities(cap.innerHTML.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
   const m = capText.match(/(\d+)\s+bills?/);
   return {
     barsTotal: Math.round(barsTotal * 100) / 100,
     barCount,
-    totalColumns: barCount + billCount,
+    totalColumns: barCount + emptyCount,
+    cols,
     captionBills: m ? Number(m[1]) : null,
     capText,
     cardRevenue: c.calcRevenue(sales, !!udhaarMode),
+    ctx: c,
   };
+}
+
+/** The chart emits HTML entities, so resolve them the way a browser would. */
+function decodeEntities(s) {
+  return s
+    .replace(/&#8377;/g, '\u20b9')
+    .replace(/&ndash;/g, '-')
+    .replace(/&middot;/g, '\u00b7')
+    .replace(/&rsquo;|&lsquo;/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 function sale(o) {
@@ -212,4 +239,203 @@ test('static: the chart applies the same inFinancials filter as the cards', () =
 test('static: profit and revenue come from the same helpers the cards use', () => {
   const b = src.slice(src.indexOf('function renderWeekChart('));
   assert.match(b, /b\.profit\s*=\s*calcProfit\(b\.list\)/);
+});
+
+// ── the day/date mapping ─────────────────────────────────────────────────────
+// This was the original defect: the grid walked 7 days back from today and then
+// labelled THOSE seven columns Mon..Sun in order, so with today being a Tuesday
+// the first column was a Wednesday sitting under a "Mon" label.
+
+/** Every rendered column's weekday name and day number must match its date. */
+function assertLabelsMatchDates(cols, ctx) {
+  assert.strictEqual(cols.length, 7, 'the chart is always seven days wide');
+  for (const c of cols) {
+    const d = new Date(`${c.date}T00:00:00`);
+    assert.strictEqual(c.weekday, WD[d.getDay()],
+      `${c.date} is a ${WD[d.getDay()]} but is labelled ${c.weekday}`);
+    assert.strictEqual(c.dayNum, d.getDate(),
+      `${c.date} is labelled day ${c.dayNum}`);
+  }
+}
+
+test('labels match their dates at the default view', () => {
+  const r = renderChart([sale({ id: 'S1', total: 1000, amtPaid: 1000, date: TODAY })], false);
+  assertLabelsMatchDates(r.cols);
+});
+
+test('labels match their dates after every day-scroll', () => {
+  for (let back = 0; back <= 8; back++) {
+    const r = renderChart([sale({ id: 'S1', total: 1000, amtPaid: 1000, date: TODAY })], false, back);
+    assertLabelsMatchDates(r.cols);
+  }
+});
+
+test('labels match their dates in previous weeks', () => {
+  for (const back of [7, 14, 21, 28]) {
+    const r = renderChart([], false, back);
+    assertLabelsMatchDates(r.cols);
+  }
+});
+
+test('the default view runs Monday to Sunday', () => {
+  const r = renderChart([], false);
+  assert.deepStrictEqual(r.cols.map((c) => c.weekday),
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+});
+
+test('a week step lands on a Monday-first week again', () => {
+  const r = renderChart([], false, 7);
+  assert.deepStrictEqual(r.cols.map((c) => c.weekday),
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+});
+
+test('a sale keeps its bar under the right day when the window moves', () => {
+  // The whole point of the mapping fix: a bar must not drift to another day.
+  const s = sale({ id: 'S1', total: 1000, amtPaid: 1000, date: TODAY });
+  const day = TODAY.slice(0, 10);
+  for (const back of [0, 1, 3, 6, 7, 10]) {
+    const r = renderChart([s], false, back);
+    assertLabelsMatchDates(r.cols);
+    if (r.cols.some((c) => c.date === day)) {
+      assert.strictEqual(r.barCount, 1, `back=${back}: sale vanished or duplicated`);
+      assert.strictEqual(r.barsTotal, 1000);
+    } else {
+      assert.strictEqual(r.barCount, 0, `back=${back}: sale shown outside the window`);
+    }
+  }
+});
+
+// ── future days ──────────────────────────────────────────────────────────────
+
+test('days after today are marked future and never carry a bar', () => {
+  const today = TODAY.slice(0, 10);
+  for (const back of [0, 2, 5, 7, 17]) {
+    const r = renderChart([sale({ id: 'S1', total: 1000, amtPaid: 1000, date: TODAY })], false, back);
+    for (const c of r.cols) {
+      const shouldBeFuture = c.date > today;
+      assert.strictEqual(/\bfuture\b/.test(c.classes), shouldBeFuture,
+        `${c.date}: future flag wrong at back=${back}`);
+    }
+  }
+});
+
+test('today is never treated as future', () => {
+  const r = renderChart([], false);
+  const t = r.cols.find((c) => c.date === TODAY.slice(0, 10));
+  assert.ok(t, 'today must have a column');
+  assert.ok(!/\bfuture\b/.test(t.classes), 'today is not in the future');
+});
+
+test('a week entirely in the past has no future days', () => {
+  const r = renderChart([], false, 21);
+  assert.strictEqual(r.cols.filter((c) => /\bfuture\b/.test(c.classes)).length, 0);
+});
+
+// ── day vs week stepping ─────────────────────────────────────────────────────
+
+/** Drive the real shift helpers and report the window after each step. */
+function step(startBack, fn) {
+  const sb = {
+    console, sales: [], _dashUdhaarMode: false,
+    _weekChartStartBack: startBack,
+    notify() {},
+  };
+  const c = vm.createContext(sb);
+  // renderWeekChart is deliberately NOT loaded here: the shift helpers only call
+  // it to repaint, and it needs a DOM. These tests are about the window maths.
+  vm.runInContext(NEEDED.filter((n) => n !== 'renderWeekChart').map(extract).join('\n'), c);
+  vm.runInContext('function renderWeekChart(){}', c);
+  fn(c);
+  const start = c.weekWindowStart();
+  const p = (n) => String(n).padStart(2, '0');
+  return {
+    startBack: c._weekChartStartBack,
+    start: `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}`,
+    weekday: WD[start.getDay()],
+  };
+}
+
+test('one day back moves the window by exactly one day', () => {
+  for (let back = 0; back < 8; back++) {
+    const a = step(back, (c) => {});
+    const b = step(back, (c) => c.shiftWeekChartDay(1));
+    const diff = Math.round(
+      (new Date(`${b.start}T00:00:00`) - new Date(`${a.start}T00:00:00`)) / 86400000);
+    assert.strictEqual(diff, -1, `from startBack=${back} the window moved ${diff} days`);
+  }
+});
+
+test('day stepping is continuous across the week boundary', () => {
+  // The bug this replaced: peeling days off a week meant the step after the peel
+  // was exhausted jumped a whole week, so holding "1 day" skipped six days.
+  let cur = 0;
+  const starts = [step(0, () => {}).start];
+  for (let i = 0; i < 14; i++) {
+    const r = step(cur, (c) => c.shiftWeekChartDay(1));
+    starts.push(r.start);
+    cur = r.startBack;
+  }
+  for (let i = 1; i < starts.length; i++) {
+    const diff = Math.round(
+      (new Date(`${starts[i]}T00:00:00`) - new Date(`${starts[i - 1]}T00:00:00`)) / 86400000);
+    assert.strictEqual(diff, -1, `step ${i} moved the window by ${diff} days, expected -1`);
+  }
+});
+
+test('a week back moves seven days and keeps Monday first', () => {
+  const a = step(0, (c) => c.shiftWeekChart(7));
+  assert.strictEqual(a.startBack, 7);
+  assert.strictEqual(a.weekday, 'Mon');
+  const diff = Math.round(
+    (new Date(`${a.start}T00:00:00`) - new Date(`${step(0, () => {}).start}T00:00:00`)) / 86400000);
+  assert.strictEqual(diff, -7);
+});
+
+test('day stepping never goes past the lookback limit', () => {
+  const r = step(28, (c) => c.shiftWeekChartDay(1));
+  assert.ok(r.startBack <= 28, `startBack ran past the cap: ${r.startBack}`);
+});
+
+test('forward stepping cannot go past the live week', () => {
+  for (const fn of ['shiftWeekChartDay', 'shiftWeekChart']) {
+    const r = step(0, (c) => c[fn](-1));
+    assert.strictEqual(r.startBack, 0, `${fn}: nothing to move, already at the live week`);
+  }
+  // and forward from a scrolled position walks back towards live
+  const r = step(3, (c) => c.shiftWeekChartDay(-1));
+  assert.strictEqual(r.startBack, 2);
+});
+
+test('reset returns to the live week', () => {
+  const r = step(21, (c) => c.resetWeekChart());
+  assert.strictEqual(r.startBack, 0);
+  assert.strictEqual(r.weekday, 'Mon');
+});
+
+test('the lookback cap still spans several whole weeks', () => {
+  // A top-level const in the app, so read it out of the source rather than
+  // expecting it to be in scope here.
+  const declared = extract('WEEK_LOOKBACK_MAX').match(/=\s*(\d+)/);
+  assert.ok(declared, 'WEEK_LOOKBACK_MAX must be a plain number');
+  assert.ok(Number(declared[1]) >= 28, 'at least four previous weeks must be reachable');
+});
+
+test('static: weekday labels come from the date, never from the column index', () => {
+  const b = src.slice(src.indexOf('function renderWeekChart('));
+  assert.match(b, /const wd = \(date\.getDay\(\) \+ 6\) % 7/,
+    'the weekday must be derived from the date');
+  assert.ok(!/WEEK_DAYS\.map\(\(label, i\)/.test(b),
+    'indexing the day names by column position is the bug that mislabelled every bar');
+});
+
+test('static: future days are excluded from the bar height', () => {
+  const b = src.slice(src.indexOf('function renderWeekChart('));
+  assert.match(b, /const hasBar = !isFuture && b\.revenue > 0/);
+});
+
+test('static: both a day and a week control are offered', () => {
+  const b = src.slice(src.indexOf('function renderWeekChart('));
+  for (const id of ['weekPrevDay', 'weekNextDay', 'weekPrevWeek', 'weekNextWeek']) {
+    assert.match(b, new RegExp(id), `missing the ${id} control`);
+  }
 });
